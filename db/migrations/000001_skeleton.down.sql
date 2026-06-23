@@ -1,0 +1,1 @@
+-- Empty rollback for the Sprint 1 skeleton migration.

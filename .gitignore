@@ -2,3 +2,9 @@ multica-upstream/
 .DS_Store
 .superpowers/
 .planning/
+.cache/
+.env
+.env.local
+.env.*.local
+web/node_modules/
+web/dist/

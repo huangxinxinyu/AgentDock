@@ -1,0 +1,2 @@
+-- Sprint 1 validates migration layout only.
+-- Product tables start in the next schema sprint after access patterns are defined.
