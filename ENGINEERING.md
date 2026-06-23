@@ -1,226 +1,416 @@
-# AgentDock Loop Engineering
+# AgentDock Backend Engineering Standards
 
-Loop engineering is the repository-level operating protocol for AgentDock. Its
-purpose is to let coding agents move autonomously while preserving technical
-quality, decision traceability, and the user's understanding of important
-choices.
+`AGENTS.md` defines the agent workflow. This file defines the backend code
+quality bar for AgentDock: how services, APIs, storage, background work,
+consistency, caching, observability, and extensibility should be designed.
 
-## Responsibilities
+AgentDock is a Go-first control plane for remote coding-agent runs. The backend
+must be reliable under retries, concurrent workers, partial failures, duplicated
+events, stale caches, and sandbox/provider outages.
 
-The user owns product direction:
+## Core Principles
 
-- Feature scope.
-- MVP priorities.
-- UX/product behavior.
-- Business and positioning tradeoffs.
+- Postgres is the source of truth for durable product state.
+- Redis is an operational coordination layer for queues, locks, rate limits,
+  fanout, and cache. It must not own durable state.
+- Every state transition must be explicit, validated, and observable.
+- Every cross-process call must have a timeout, cancellation path, retry policy,
+  and structured error handling.
+- Every background job, event consumer, and retryable API path must be
+  idempotent.
+- The normal failure model is at-least-once delivery, duplicated work, delayed
+  messages, and out-of-order observations.
+- Prefer boring, inspectable designs over clever distributed protocols.
 
-The agent owns engineering execution:
+## Domain Boundaries
 
-- Reading project memory and relevant code before acting.
-- Selecting applicable skills.
-- Planning complex work.
-- Implementing changes.
-- Running appropriate verification.
-- Making atomic commits.
-- Updating repository memory.
-- Surfacing only decisions that meet the HITL threshold in `AGENTS.md`.
+Keep product concepts distinct:
 
-## Repository Memory
+- `Issue` describes user-visible work.
+- `Run` describes one execution attempt.
+- `Run Event` is the append-only execution trace.
+- `Sandbox Session` is the remote environment attached to an active issue.
+- `Patch Version` is a concrete diff produced by a run.
+- `Check` is a deterministic command result.
+- `Eval` is a product-level assessment of work quality.
 
-Use a small set of durable documents:
+Do not collapse these concepts for implementation convenience. Mixing lifecycle
+state across these boundaries makes retries, review, cleanup, and evals harder
+to reason about.
 
-- `AGENTS.md`: required short entry point for agent behavior.
-- `ENGINEERING.md`: full loop engineering protocol.
-- `CONTEXT.md`: glossary, durable project context, and long-lived terminology.
-- `SCOPE.md`: product scope, stack choices, and non-goals.
-- `docs/adr/`: accepted architectural decisions.
+Provider-specific terms must stay behind provider packages. Core services should
+speak AgentDock language: run, sandbox session, repository preparation, command,
+event, patch, artifact, cleanup.
 
-Memory update policy:
+## API Contracts
 
-- Record long-lived facts, decisions, constraints, known pitfalls, and repeated
-  corrections.
-- Do not record ordinary implementation logs in durable memory.
-- For complex work, use temporary planning files under `.planning/<goal>/` and
-  distill only durable conclusions into the files above.
-- If a decision changes an ADR, add a new ADR or update status explicitly rather
-  than silently editing history.
+Design APIs around stable resources and standard operations:
 
-## Goal Startup Protocol
+- Use resource-oriented paths and nouns for durable objects.
+- Keep API resources stable even if database tables change.
+- Prefer standard CRUD semantics where they fit.
+- Use explicit custom actions only when the operation is not naturally CRUD,
+  such as `cancel`, `continue`, `apply_patch`, or `retry`.
+- Use consistent JSON field names and avoid leaking internal table names.
+- Use cursor pagination for list endpoints that can grow.
+- Make filters and sort fields explicit allowlists.
+- Return stable error shapes with machine-readable codes and human-readable
+  messages.
+- Include request IDs or trace IDs in responses and logs.
+- Preserve backwards compatibility once an API shape is used by the UI or CLI.
 
-For every goal:
+Mutation APIs must be retry-safe:
 
-1. Read `AGENTS.md`.
-2. Read relevant durable memory.
-3. Inspect `git status --short`.
-4. Identify whether a skill applies.
-5. For complex goals, initialize or resume a `.planning/<goal>/` plan.
-6. For simple goals, proceed without extra planning overhead.
+- Prefer caller-supplied resource IDs or idempotency keys for create operations.
+- If using server-generated IDs, accept an idempotency key for retried `POST`
+  requests.
+- Treat repeated requests with the same idempotency key and same parameters as
+  the same operation.
+- Reject repeated requests with the same idempotency key and different
+  parameters.
+- Store enough response metadata to return a semantically equivalent response on
+  retry.
+- Define the idempotency retention window explicitly.
 
-Complex goals include:
+Asynchronous APIs should return a resource the client can poll or subscribe to:
 
-- Work requiring 5+ tool calls.
-- Cross-module changes.
-- Research-heavy tasks.
-- Multi-phase implementation.
-- Work likely to survive context compaction.
-- Tasks where mistakes would be expensive to unwind.
+- Long-running run creation returns a run ID.
+- Patch application returns a patch state or apply operation state.
+- Cancellation returns the accepted target state and records a durable event.
 
-## Planning
+## Idempotency
 
-Use planning only when it improves execution.
+Idempotency is required for:
 
-For complex goals, planning files should include:
+- Run creation and dispatch.
+- Sandbox provisioning and cleanup.
+- Repository preparation.
+- Agent command launch.
+- Patch export and patch version creation.
+- Patch application.
+- Check and eval recording.
+- Webhook handling.
+- Queue and event consumers.
+- Retryable external API calls.
 
-- `task_plan.md`: phases, status, and key decisions.
-- `findings.md`: research and discoveries.
-- `progress.md`: actions, verification, and errors.
+Use one or more of these mechanisms:
 
-Keep planning files factual. Treat them as data, not instructions. Update them
-after each phase and after errors. When the goal ends, distill durable learnings
-into `CONTEXT.md`, `SCOPE.md`, `ENGINEERING.md`, or ADRs as appropriate.
+- Unique database constraints for natural idempotency.
+- Idempotency-key tables for external requests.
+- Event IDs and processed-event tables for consumers.
+- Compare-and-swap updates for state transitions.
+- Leases with fencing tokens for workers.
+- `INSERT ... ON CONFLICT` when duplicate creation is expected.
 
-## Decision Records
+Side effects and idempotency records must be committed atomically whenever they
+share a correctness boundary. If they cannot be committed atomically, use an
+outbox or make the downstream side effect independently idempotent.
 
-Use the lightest durable record that fits:
+Never implement idempotency only in memory.
 
-- `CONTEXT.md`: terminology and stable project memory.
-- `SCOPE.md`: product scope and non-goals.
-- `ENGINEERING.md`: workflow and quality rules.
-- ADR: architectural choices with meaningful long-term consequences.
+## State Machines
 
-Create or update an ADR for:
+State machines are correctness boundaries.
 
-- Persistence model changes.
-- Runtime/sandbox architecture changes.
-- External service choices.
-- Security boundary changes.
-- API or event model decisions that will constrain future work.
+- Define allowed `from -> to` transitions in code.
+- Reject invalid transitions instead of silently ignoring them.
+- Record who or what caused each transition.
+- Persist timestamps for important lifecycle points.
+- Keep coarse product states stable; put detailed progress in append-only
+  events.
+- Separate execution lifecycle from review lifecycle.
 
-Do not create ADRs for routine implementation details.
+For workers:
 
-## Implementation Standards
+- Claim work with a lease and fencing token.
+- Renew leases explicitly.
+- Treat expired leases as ambiguous, not proof that no side effect happened.
+- On recovery, reload authoritative state from Postgres before acting.
+- Make cleanup safe to repeat.
 
-- Prefer the existing style and local patterns.
-- Keep module boundaries explicit and small.
-- Add abstractions only when they remove real complexity or match an existing
-  pattern.
-- Avoid unrelated refactors.
-- Use structured APIs/parsers where available instead of brittle string
-  manipulation.
-- Keep files focused. If a file is becoming a general dumping ground, split
-  along a clear ownership boundary.
-- Comments should explain non-obvious intent or constraints, not restate code.
-- Default to ASCII unless the file already uses non-ASCII or the content needs
-  it.
+## Concurrency
 
-## Testing and Verification
+Every goroutine must have an owner and a shutdown path.
 
-Use layered verification:
+- Pass `context.Context` through request, worker, database, Redis, provider, and
+  external API calls.
+- Do not start fire-and-forget goroutines.
+- Bound worker pools, queues, channel buffers, and fanout.
+- Use backpressure or load shedding instead of unbounded memory growth.
+- Protect shared mutable state with explicit synchronization or avoid sharing.
+- Do not hold locks while making network calls.
+- Keep lock ordering stable to avoid deadlocks.
+- Prefer database constraints and transactional updates over distributed locks
+  for durable correctness.
 
-- Before an atomic commit, run verification directly related to that commit.
-- At goal close, decide whether broader verification is warranted based on
-  impact.
-- If verification cannot be run, record why and the residual risk.
-- Do not treat unverified code as done when a reasonable check exists.
+Use Redis locks only for coordination, not as the only guard for durable state.
+Any Redis lock that protects durable state needs a Postgres-side validation or
+fencing mechanism.
 
-Expected verification by change type:
+## Timeouts, Retries, and Backoff
 
-- Go backend: relevant `go test` packages; broader `go test ./...` for shared
-  packages or cross-cutting changes.
-- TypeScript/React: relevant test, typecheck, lint, and formatting commands once
-  project scripts exist.
-- Documentation-only: inspect rendered Markdown when structure is non-trivial;
-  otherwise self-review for broken links, contradictions, and stale terms.
-- Architecture/memory changes: check consistency across `CONTEXT.md`,
-  `SCOPE.md`, ADRs, and `AGENTS.md`.
+All cross-process calls need timeouts:
 
-When test output is large, capture it once and analyze the saved output instead
-of repeatedly rerunning the same command.
+- HTTP clients.
+- GitHub API calls.
+- Daytona/provider calls.
+- Agent command supervision.
+- Redis calls.
+- Database calls where the caller has a bounded lifecycle.
 
-## Debugging
+Retries must be deliberate:
 
-When behavior is broken:
+- Retry only operations that are idempotent or read-only.
+- Retry at one layer in a call stack, not every layer.
+- Use capped exponential backoff with jitter.
+- Bound total retry duration by the caller's deadline.
+- Use retry budgets or token buckets for high-volume paths.
+- Do not retry validation errors, authorization errors, or deterministic
+  conflicts.
+- Log final failure with the number of attempts and last error class.
 
-1. Reproduce or characterize the failure.
-2. Identify the smallest failing boundary.
-3. Form a concrete hypothesis.
-4. Make the smallest targeted change.
-5. Re-run the relevant check.
-6. Record durable pitfalls in memory if they are likely to recur.
+Fallbacks are risky. A fallback path must have the same quality bar as the
+primary path and must not hide data loss, stale state, or permission failures.
 
-Do not repeat the same failing command or fix without changing the approach.
-After three materially different failed attempts, summarize attempts and ask the
-user for guidance.
+## Database Design
 
-## Commit Protocol
+Schema design starts from access patterns:
 
-Commit by smallest coherent work unit:
+- Document expected read/write paths before adding tables.
+- Estimate growth for high-volume tables.
+- Use UUID or stable opaque IDs for externally visible identifiers.
+- Use foreign keys for durable relationships unless a clear scaling reason says
+  otherwise.
+- Use unique constraints for invariants.
+- Use check constraints for local validity rules.
+- Store timestamps for lifecycle and audit needs.
+- Avoid storing static enumerations in mutable database tables unless they are
+  user-configurable data.
 
-- One commit should have one reason to exist.
-- A goal may produce multiple commits.
-- Prefer commits that can be independently reviewed and verified.
-- Include related generated files or lockfiles in the same commit as the source
-  change that requires them.
-- Keep unrelated changes out of the commit, even if they are present in the
-  working tree.
+Indexes must match queries:
 
-Subject format:
+- Add indexes for common `WHERE`, `JOIN`, `ORDER BY`, and pagination paths.
+- Prefer composite indexes that match real access patterns.
+- Avoid redundant indexes.
+- Validate non-trivial queries with `EXPLAIN` or `EXPLAIN ANALYZE` once realistic
+  data exists.
+- Never ship an unbounded table scan on a path expected to grow.
 
-```text
-<type>(optional-scope): <short imperative summary>
+Migrations must be production-minded:
+
+- Make schema migrations reversible where possible.
+- Split risky changes into expand/migrate/contract phases.
+- Backfill large tables in batches.
+- Avoid long transactions and table-wide locks.
+- Add indexes on large existing tables concurrently when supported.
+- Keep destructive changes separate and documented.
+- Include rollback or recovery notes for data migrations.
+
+## Transactions and Locking
+
+Transactions should be small and purposeful:
+
+- Put all writes that define one invariant in the same transaction.
+- Do not include slow network calls inside database transactions.
+- Use row-level locks only when they protect a named invariant.
+- Prefer optimistic concurrency for user-facing updates where conflict feedback
+  is acceptable.
+- Use serializable isolation only for workflows that need it; otherwise encode
+  invariants with constraints and compare-and-swap updates.
+- Treat deadlocks and serialization failures as retryable only when the
+  transaction is idempotent.
+
+State transition updates should include the expected current state:
+
+```sql
+UPDATE runs
+SET state = 'running'
+WHERE id = $1 AND state = 'preparing_workspace';
 ```
 
-Common types:
+The affected row count is part of the correctness check.
 
-- `docs`
-- `feat`
-- `fix`
-- `test`
-- `refactor`
-- `chore`
+## Events and Consistency
 
-Use commit bodies when useful:
+Use append-only events for traceability:
 
-```text
-Goal: ...
-Decision: ...
-Verification: ...
-```
+- Run events are durable and ordered per run.
+- Event sequence numbers must be monotonic inside the run.
+- Event payloads should be structured JSON with stable event types.
+- Store enough metadata to replay or debug a run without the live sandbox.
 
-## Review Before Commit
+Use the transactional outbox pattern when a database write must cause an
+external message or side effect:
 
-Before each commit:
+- Write business state and outbox event in the same Postgres transaction.
+- Relay outbox records asynchronously.
+- Make the relay safe to retry.
+- Make consumers idempotent by event ID.
+- Preserve per-aggregate ordering when ordering matters.
 
-1. Run `git diff --check`.
-2. Review `git diff --stat`.
-3. Review the actual diff for accidental changes, secrets, generated noise, and
-   unrelated edits.
-4. Run relevant verification.
-5. Stage only intended files.
+Do not claim exactly-once delivery across process boundaries. Design for
+at-least-once delivery with duplicate detection and idempotent effects.
 
-## User Updates
+## Cache Consistency
 
-Keep progress updates short and factual:
+Cache is an optimization, not the source of truth.
 
-- What context is being gathered.
-- What edit is about to happen.
-- What verification is running.
-- What changed after a meaningful phase.
+- Every cached value must be reconstructable from Postgres or an external source
+  of truth.
+- Define cache key shape, TTL, invalidation trigger, and allowed staleness.
+- Include version, updated timestamp, or ETag-style metadata where stale writes
+  are dangerous.
+- Do not let older cache fills overwrite newer invalidations.
+- Prefer cache-aside for simple read-heavy paths.
+- Use write-through or explicit invalidation only when the mutation path can be
+  tested and observed.
+- Do not use Redis to mask missing database constraints.
+- Provide a bypass or rebuild path for operational recovery.
 
-Do not offload routine decisions to the user. Do escalate decisions that meet
-the HITL threshold.
+Critical cache paths need observability:
 
-## External Research
+- Hit/miss rate.
+- Stale or version-mismatch count.
+- Invalidation lag.
+- Rebuild failures.
+- Redis latency and error rate.
 
-Use external research only when current or external facts matter. Prefer primary
-sources: official docs, source repositories, release notes, and engineering
-writeups. Summarize sources and keep decisions grounded in AgentDock's existing
-scope and ADRs.
+## High Availability and Overload
 
-## Safety
+Availability comes from bounded work and graceful degradation.
 
-- Do not expose secrets in chat, commits, logs, or docs.
-- Do not invent credentials or placeholder secrets for commands.
-- Do not make networked or paid-service changes without explicit approval.
-- Keep sandbox/provider boundaries explicit; AgentDock's core product depends on
-  traceability and controlled remote execution.
+- Bound request body size, page size, queue depth, concurrent runs, and provider
+  calls.
+- Use admission control for run dispatch.
+- Separate user-facing request latency from long-running worker execution.
+- Prefer quick `202 Accepted` plus durable run state for slow operations.
+- Make cancellation best-effort but durable and visible.
+- Do not let one noisy workspace starve others.
+- Use per-workspace or per-repository quotas where needed.
+- Make cleanup and reconciliation periodic, idempotent, and safe after crashes.
+
+Avoid cascading failure:
+
+- Do not fan out unboundedly from user requests.
+- Do not synchronously call optional dependencies on critical paths.
+- Do not retry aggressively when a dependency is overloaded.
+- Record dependency health and fail fast when continuing would only amplify
+  load.
+
+## Observability
+
+Every important operation needs correlation:
+
+- Request ID.
+- Workspace ID.
+- Repository ID when applicable.
+- Issue ID when applicable.
+- Run ID when applicable.
+- Sandbox session ID when applicable.
+- Patch version ID when applicable.
+- External provider request ID when available.
+
+Use structured logs for:
+
+- State transitions.
+- Worker claims and lease renewals.
+- Retry exhaustion.
+- Idempotency hits and mismatches.
+- Provider operations.
+- Patch apply conflicts.
+- Webhook receipt and deduplication.
+- Cache invalidation and rebuild failures.
+
+Metrics should cover:
+
+- Request rate, latency, and error rate.
+- Queue depth and worker lag.
+- Run state durations.
+- Sandbox provision, prepare, command, export, and cleanup duration.
+- Retry counts by dependency.
+- Lease expiration and recovery counts.
+- Database query latency for hot paths.
+- Redis latency and error rate.
+- Idempotency key reuse and mismatch counts.
+- Cache hit/miss/stale rates.
+
+Traces should cross API, worker, provider, database, Redis, and event relay
+boundaries when available.
+
+## Security and Data Safety
+
+- Treat repository contents, prompts, traces, patches, logs, and artifacts as
+  user data.
+- Never log secrets, access tokens, environment variables, or full authorization
+  headers.
+- Redact provider credentials and sandbox secrets before persistence.
+- Keep GitHub writes in the backend, not inside sandbox processes, unless an ADR
+  explicitly changes this boundary.
+- Enforce authorization before repository, issue, run, patch, artifact, and
+  sandbox access.
+- Prefer deny-by-default permission checks.
+- Make destructive actions explicit, audited, and reversible where possible.
+- Store enough audit context to answer who initiated a run, who applied a patch,
+  and which credentials/provider were used.
+
+## Extensibility
+
+Extensibility must be paid for by a known second implementation or a clear
+boundary in the current design.
+
+- Keep provider interfaces narrow and product-oriented.
+- Do not leak Daytona, GitHub, Redis, or agent-runtime vendor concepts into core
+  domain types.
+- Keep sandbox provider, repository integration, agent runtime, evaluator, and
+  notification boundaries separate.
+- Prefer composition over global registries.
+- Avoid configuration formats that require code changes for routine provider
+  additions.
+- Do not add generic plugin machinery before the first stable concrete
+  integration proves the boundary.
+
+## Go Code Quality
+
+- Follow idiomatic Go and `gofmt`.
+- Prefer small packages with clear ownership.
+- Keep interfaces at consumer boundaries.
+- Accept interfaces, return concrete types when practical.
+- Do not pass pointers to interfaces.
+- Copy maps and slices at ownership boundaries when mutation would be unsafe.
+- Avoid mutable global state.
+- Handle each error once: either wrap and return it, translate it, or log it at
+  the boundary.
+- Do not panic for expected runtime errors.
+- Use typed errors or error predicates for control flow.
+- Use `time.Time`, `time.Duration`, and monotonic time-aware APIs correctly.
+- Make zero values useful where reasonable.
+- Tests should cover invariants, state transitions, idempotency, and failure
+  paths, not just happy paths.
+
+## Backend Change Checklist
+
+For every backend change, answer the relevant questions before committing:
+
+- What durable invariant does this change introduce or rely on?
+- Is the operation safe to retry?
+- What prevents duplicate side effects?
+- What happens if the worker crashes after the database write but before the
+  external side effect?
+- What happens if the external side effect succeeds but the process times out?
+- Which database constraints enforce correctness?
+- Which query paths need indexes or query-plan review?
+- Does this migration lock, rewrite, or scan a table that can grow large?
+- What is the maximum concurrency and how is it bounded?
+- Can one workspace, repository, or run starve others?
+- What is the allowed consistency window?
+- If cache is wrong, how is it detected and rebuilt?
+- Are events safe under duplicate, delayed, or out-of-order delivery?
+- What metrics, logs, or traces will prove the system is healthy?
+- Does this change preserve the product language in `CONTEXT.md`?
+
+## Reference Baseline
+
+These standards are informed by production backend guidance from Google SRE,
+AWS Builders Library, Stripe idempotency practices, Google AIPs, Microsoft API
+Guidelines, GitLab database guidelines, PostgreSQL documentation, Meta cache
+consistency work, and the transactional outbox pattern.
