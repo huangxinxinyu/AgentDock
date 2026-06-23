@@ -1,0 +1,288 @@
+:root {
+  color: #1d2328;
+  background: #f5f6f2;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  padding: 28px 20px;
+  color: #eef4ee;
+  background: #26332f;
+}
+
+.brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-mark {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border: 1px solid #88b8a5;
+  border-radius: 8px;
+  color: #26332f;
+  background: #bfe7d2;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.brand-lockup h1,
+.brand-lockup p {
+  margin: 0;
+}
+
+.brand-lockup h1 {
+  font-size: 20px;
+  line-height: 1.1;
+}
+
+.brand-lockup p {
+  margin-top: 3px;
+  color: #b9c8bf;
+  font-size: 13px;
+}
+
+.sidebar nav {
+  display: grid;
+  gap: 4px;
+}
+
+.sidebar a {
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: #dbe5df;
+  font-size: 14px;
+}
+
+.sidebar a:hover {
+  background: #31423c;
+}
+
+.workspace {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 24px;
+  padding: 28px;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  border-bottom: 1px solid #d9ded8;
+  padding-bottom: 20px;
+}
+
+.eyebrow,
+.section-label {
+  margin: 0 0 7px;
+  color: #6f6553;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.topbar h2 {
+  margin: 0;
+  font-size: 28px;
+  line-height: 1.15;
+}
+
+.health-pill {
+  display: inline-flex;
+  min-width: 166px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid #d0d7d1;
+  border-radius: 999px;
+  padding: 9px 13px;
+  background: #ffffff;
+  color: #5d645f;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.health-pill span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #a44c3d;
+}
+
+.health-pill.ok {
+  border-color: #9dc9b3;
+  color: #1f6641;
+}
+
+.health-pill.ok span {
+  background: #2ca565;
+}
+
+.status-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.status-grid article,
+.route-band {
+  border: 1px solid #d9ded8;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.status-grid article {
+  padding: 20px;
+}
+
+.status-grid h3 {
+  margin: 0 0 16px;
+  font-size: 20px;
+}
+
+dl {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+dl div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+dt {
+  color: #69736d;
+  font-size: 13px;
+}
+
+dd {
+  margin: 0;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 13px;
+}
+
+ul {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+li {
+  border-left: 3px solid #b97a49;
+  padding-left: 10px;
+  color: #39413c;
+  font-size: 14px;
+}
+
+.route-band {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  overflow: hidden;
+}
+
+.route-band div {
+  display: grid;
+  gap: 6px;
+  min-height: 96px;
+  border-right: 1px solid #e1e5df;
+  padding: 18px;
+}
+
+.route-band div:last-child {
+  border-right: 0;
+}
+
+.route-band span {
+  color: #5a6d66;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.route-band strong {
+  color: #242b27;
+  font-size: 15px;
+}
+
+@media (max-width: 780px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    padding: 18px;
+  }
+
+  .sidebar nav {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    overflow-x: auto;
+  }
+
+  .sidebar a {
+    text-align: center;
+  }
+
+  .workspace {
+    padding: 18px;
+  }
+
+  .topbar,
+  dl div {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .status-grid,
+  .route-band {
+    grid-template-columns: 1fr;
+  }
+
+  .route-band div {
+    border-right: 0;
+    border-bottom: 1px solid #e1e5df;
+  }
+}
