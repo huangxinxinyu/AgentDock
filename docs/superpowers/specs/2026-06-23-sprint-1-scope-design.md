@@ -5,261 +5,211 @@ Status: proposed for implementation after user review
 
 ## Summary
 
-Sprint 1 will build AgentDock's first end-to-end vertical slice:
+Sprint 1 will build AgentDock's project skeleton, not the first remote
+execution loop.
+
+The goal is to turn the documentation-only repository into a runnable,
+testable, greenfield application foundation:
 
 ```text
-create issue
--> create run
--> worker drives sandbox provider
--> append run events
--> stream live trace
--> persist summary and patch placeholder
--> show result in the web console
+repo layout
+-> Go backend skeleton
+-> TypeScript/React frontend skeleton
+-> local Postgres/Redis dev environment
+-> configuration and secret conventions
+-> provider/runtime interface placeholders
+-> CI and verification commands
 ```
 
-The sprint should prove AgentDock's core thesis: a Go control plane owns the run
-lifecycle while execution happens behind a sandbox provider boundary. The first
-implementation may use a fake sandbox provider for local deterministic
-verification, with a Daytona provider boundary in place for the first real
-remote smoke test.
+This sprint should make the next implementation sprint straightforward without
+silently committing product behavior too early.
 
 ## Goals
 
-- Create the initial application skeleton for a greenfield repo.
-- Implement the minimum Work Management Shell needed to start and inspect one
-  coding-agent run.
-- Implement the Remote Run Engine's first durable lifecycle path.
-- Persist authoritative state in Postgres.
-- Use Redis only as an operational coordination boundary where needed.
-- Store run trace as append-only durable events.
-- Stream run events to the browser with run-scoped SSE.
-- Represent patch review and eval as lightweight MVP records without building
-  the full review or eval lab experience.
+- Create the initial monorepo structure for AgentDock.
+- Add a Go backend skeleton with clear package boundaries.
+- Add a TypeScript/React web console skeleton.
+- Add local development infrastructure for Postgres and Redis.
+- Add configuration loading and `.env.example` conventions without committing
+  real secrets.
+- Add placeholder boundaries for sandbox providers, agent runtimes, repository
+  integration, run orchestration, checks, and eval.
+- Add basic health/status endpoints and frontend app shell only.
+- Add formatting, linting, testing, and CI commands so future work has a stable
+  engineering loop.
 
 ## Non-Goals
 
-- GitHub App installation, OAuth, webhooks, pull request creation, or merge
-  automation.
-- Applying patches back to GitHub branches.
-- Full patch review workflow beyond displaying the latest produced patch
-  placeholder.
-- Sandbox reuse, Continue Work, or full sandbox TTL management.
-- Multi-agent routing, multi-provider agent runtimes, squads, autopilots, or
-  marketplace skills.
-- Billing, organization RBAC, mobile app, self-host installer, or collaboration
-  features.
-- External eval SDK integrations, LLM judges, golden test suites, or Eval Lab.
+- Creating issues from the UI.
+- Creating runs or executing a worker lifecycle.
+- Provisioning Daytona sandboxes.
+- Calling OpenRouter, Anthropic, Claude SDK, or Claude Code.
+- Persisting the full product data model.
+- Streaming run events over SSE or WebSocket.
+- Implementing patch review, checks, or eval behavior.
+- Implementing GitHub App installation, OAuth, webhooks, branch creation, pull
+  requests, or patch apply.
+- Implementing authentication, billing, RBAC, collaboration, marketplace skills,
+  or multi-agent routing.
 - Copying implementation code from `multica-upstream/`.
 
-## Product Surface
+## Repository Shape
 
-Sprint 1 should expose a thin operational shell:
-
-- Workspace seed or create flow sufficient for local development.
-- Repository record with a hardcoded or manually entered repo URL.
-- Agent record for one Claude-based coding agent profile.
-- Issue list and issue detail.
-- Run detail with state, live trace, summary, patch placeholder, checks, and
-  lightweight eval result.
-
-This keeps the UI focused on operating and observing remote runs rather than
-becoming a broad issue tracker.
-
-## Architecture
-
-### Backend
-
-The backend should be a Go-first service with:
-
-- HTTP API for workspaces, repositories, agents, issues, runs, and run events.
-- Embedded worker loop in the same deployable binary for Sprint 1.
-- Postgres migrations and repository layer for durable state.
-- Narrow sandbox provider interface owned by AgentDock domain language.
-- Fake sandbox provider for deterministic local tests.
-- Daytona provider package behind the same interface, allowed to be incomplete
-  until credentials and remote smoke testing are available.
-- Structured logging around request ID, workspace ID, issue ID, run ID, and
-  sandbox session ID where applicable.
-
-The embedded worker is an MVP deployment choice, not a permanent architectural
-lock-in. Package boundaries should still allow a separate worker process later.
-
-### Frontend
-
-The frontend should be a TypeScript/React web console with:
-
-- Issue list/detail.
-- Create issue action.
-- Start run action.
-- Run detail panel.
-- Live trace viewer backed by SSE.
-- Summary, patch placeholder, check result, and eval result panels.
-
-The UI should be utilitarian and operational: dense enough to inspect run state,
-with no marketing landing page.
-
-### Sandbox Provider Boundary
-
-Core services should speak AgentDock terms:
-
-- create sandbox session
-- prepare repository
-- start command
-- stream provider output into normalized run events
-- collect summary
-- export patch placeholder or patch content
-- cleanup or mark cleanup pending
-
-Only provider packages should speak Daytona-specific terms. Fake and Daytona
-providers must satisfy the same consumer-facing interface.
-
-## State Model
-
-Sprint 1 should use coarse run states with rich events:
+Sprint 1 should establish a structure close to:
 
 ```text
-queued
-provisioning
-preparing_workspace
-running
-awaiting_review
-completed
-failed
-cancelled
+cmd/
+  agentdock-api/
+    main.go
+internal/
+  app/
+  config/
+  httpapi/
+  domain/
+  store/
+  worker/
+  sandbox/
+  runtime/
+  repo/
+  checks/
+  eval/
+web/
+  src/
+  package.json
+db/
+  migrations/
+deploy/
+  docker-compose.yml
+scripts/
+docs/
 ```
 
-`completed` is the successful terminal execution state for Sprint 1. This
-resolves the existing document inconsistency where `SCOPE.md` uses `succeeded`
-and ADR-0004 uses `completed`.
+Exact names can change during implementation if the local Go/React tooling makes
+a better convention obvious, but the boundary intent should remain.
 
-Run state and patch state remain separate. Sprint 1 patch states:
+## Backend Skeleton
 
-```text
-pending
-superseded
-applied
-rejected
-conflict
-```
+The Go backend should include:
 
-Only `pending` needs to be reachable in the first vertical slice. The remaining
-states should exist in the model if that is cheap, but their full workflows are
-not in Sprint 1.
+- `cmd/agentdock-api` entrypoint.
+- Configuration loading from environment variables.
+- Structured logger initialization with secret redaction rules documented.
+- HTTP server setup with request context, timeouts, request IDs, and graceful
+  shutdown.
+- `GET /healthz` for process health.
+- `GET /readyz` for dependency readiness, allowed to report degraded database or
+  Redis state during local development.
+- Package boundaries for domain models, storage, API handlers, background
+  workers, sandbox providers, agent runtimes, repository integrations, checks,
+  and eval.
+- Interfaces or placeholder types for future provider/runtime boundaries, with
+  no real external calls.
+- Unit tests that prove config loading, health handlers, and basic package wiring
+  compile and run.
 
-## Data Scope
+The backend should not implement the run state machine yet. It may define type
+names or package locations that make the later run state machine natural.
 
-Initial durable tables should cover:
+## Frontend Skeleton
 
-- `workspaces`
-- `repositories`
-- `agents`
-- `issues`
-- `runs`
-- `run_events`
-- `sandbox_sessions`
-- `patch_versions`
-- `checks`
-- `eval_results`
+The frontend should include:
 
-Important invariants:
+- TypeScript/React app setup.
+- Routing shell for future workspace, issue list, issue detail, run detail, and
+  settings pages.
+- A first screen that shows AgentDock operational shell chrome and backend health
+  status.
+- API client foundation with typed response handling.
+- Basic empty/loading/error states.
+- Formatting, linting, typecheck, and test scripts.
 
-- Postgres is the source of truth.
-- Run events are append-only and ordered per run.
-- Run transitions are validated in code.
-- Worker claims and retries must be safe to repeat.
-- Sandbox provider side effects must be represented by durable run state and
-  events before the UI depends on them.
+The frontend should not implement issue creation, run creation, live trace,
+patch review, or eval views beyond placeholder routes.
 
-## API Scope
+## Local Development
 
-Sprint 1 API should include:
+Sprint 1 should make local setup predictable:
 
-- Create/list/get workspace as needed for the local shell.
-- Create/list/get repository as needed for a hardcoded or manually entered repo.
-- Create/list/get agent for one Claude agent profile.
-- Create/list/get issue.
-- Create run for an issue.
-- Get run detail.
-- List run events with cursor or sequence offset.
-- Subscribe to run events with SSE.
+- `deploy/docker-compose.yml` or equivalent for Postgres and Redis.
+- `.env.example` documenting required local variables.
+- `.env.local` ignored by git.
+- No real Daytona, OpenRouter, Anthropic, GitHub, or encryption keys committed.
+- Scripts or Make targets for:
+  - installing dependencies
+  - starting local dependencies
+  - running backend
+  - running frontend
+  - running tests
+  - running format/lint/typecheck
 
-Mutation APIs that create issues or runs should use idempotency keys or a clear
-retry-safe strategy.
+Local development should work without any external provider key. Provider keys
+are introduced only in later smoke-test work.
 
-## Runtime Behavior
+## Configuration And Secret Boundaries
 
-The first run path should be:
+Sprint 1 should document and scaffold these secret categories:
 
-1. User creates an issue.
-2. User starts a run for the issue.
-3. API creates a durable `queued` run.
-4. Worker claims the run.
-5. Worker transitions through `provisioning`, `preparing_workspace`, and
-   `running`.
-6. Provider emits normalized events.
-7. Worker appends events to `run_events`.
-8. UI receives events over SSE and can reload from REST if SSE disconnects.
-9. Worker persists summary, patch placeholder, check result, and eval result.
-10. Worker transitions to `awaiting_review` when there is a reviewable patch
-    placeholder, or `completed` when there is only a summary result.
-11. Failure paths transition to `failed` with structured error events.
+- Platform infrastructure secrets: database URL, Redis URL, app/session secret,
+  encryption key.
+- Sandbox provider secrets: Daytona API key and related endpoint settings.
+- Model provider secrets: user-supplied OpenRouter, Anthropic, or later runtime
+  keys.
+- GitHub integration secrets: future GitHub App credentials.
 
-For Sprint 1, a fake provider can simulate the full path. A real Daytona smoke
-test is optional unless credentials and remote access are available.
+The skeleton should establish this principle: frontend never receives provider
+secrets, committed files never contain real secrets, and backend logs must be
+designed to redact credentials.
 
-## Eval Scope
+No separate AI middleware repository is part of Sprint 1. Agent/model routing
+should remain a future backend boundary unless a later sprint proves that a
+separate deployment is needed.
 
-Eval is included as a lightweight MVP record, not an eval platform.
+## Database And Migrations
 
-The first evaluator should persist simple deterministic fields such as:
+Sprint 1 should add migration tooling and either:
 
-- run reached a terminal state
-- run produced summary
-- run produced patch placeholder or patch content
-- checks passed, failed, or were not run
-- optional user-visible verdict label
+- an empty first migration that validates the tooling, or
+- minimal infrastructure tables required by the skeleton, such as schema version
+  tracking if the chosen migration tool needs it.
 
-External eval infrastructure and LLM judging are out of scope.
+It should not create the full AgentDock product schema. Future schema work must
+still start from access patterns and invariants.
 
-## Testing And Verification
+## CI And Verification
 
-Sprint 1 implementation should include:
+Sprint 1 should add a baseline verification loop:
 
-- Unit tests for run state transitions.
-- Unit tests for append-only event sequencing.
-- Unit tests for idempotent run creation or retry-safe run creation behavior.
-- Worker tests with fake sandbox provider covering success and failure.
-- API tests for create issue, create run, get run, and list events.
-- Frontend smoke test for issue creation, run start, trace display, and final
-  result display.
-- Migration verification.
+- Go formatting and tests.
+- Frontend formatting, linting, typechecking, and tests.
+- Optional migration validation if the tooling supports it locally.
+- CI workflow that runs the same commands without requiring external secrets.
 
-If Daytona credentials are available, add one manual or scripted smoke test that
-creates a sandbox, runs a simple command, streams output, and records events.
+The CI path must not require Daytona, OpenRouter, Anthropic, or GitHub keys.
 
 ## Acceptance Criteria
 
 Sprint 1 is complete when:
 
-- A developer can start the stack locally.
-- A user can create an issue from the web console.
-- A user can start a run for that issue.
-- The run moves through durable states.
-- The worker appends ordered run events.
-- The browser shows live trace updates.
-- The run stores a summary and patch placeholder.
-- The issue/run view shows the final state, summary, patch placeholder, check
-  result, and lightweight eval result.
-- Tests cover the core state machine, worker, API, and UI smoke path.
-- The implementation does not copy code from `multica-upstream/`.
+- The repository has a clear backend/frontend/deploy/script structure.
+- A developer can start Postgres and Redis locally.
+- A developer can run the backend locally and hit `GET /healthz`.
+- A developer can run the frontend locally and see the AgentDock app shell.
+- The frontend can call the backend health endpoint.
+- Backend tests pass.
+- Frontend lint/typecheck/test commands pass.
+- CI runs the baseline checks without external provider secrets.
+- `.env.example` documents configuration without leaking real credentials.
+- Provider/runtime/repository/check/eval package boundaries exist as scaffolding
+  for later sprints.
+- No implementation code is copied from `multica-upstream/`.
 
 ## Follow-Up After Sprint 1
 
 Likely Sprint 2 candidates:
 
-- Real Daytona provider hardening.
-- GitHub App connection and issue branch creation.
-- Patch export and apply guard.
-- Sandbox TTL and Continue Work.
-- First real Claude SDK adapter inside the sandbox.
-- More useful eval scoring and persisted feedback.
+- Minimal domain schema and migrations for workspace, repository, agent, issue,
+  run, and run event records.
+- First fake-provider run lifecycle through the Go backend.
+- Run-scoped SSE trace.
+- Daytona smoke test path.
+- OpenRouter or Claude runtime adapter behind the runtime interface.
