@@ -2,6 +2,7 @@ multica-upstream/
 .DS_Store
 .superpowers/
 .planning/
+.worktrees/
 .cache/
 .env
 .env.local
