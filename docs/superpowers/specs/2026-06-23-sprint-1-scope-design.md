@@ -15,7 +15,7 @@ testable, greenfield application foundation:
 repo layout
 -> Go backend skeleton
 -> TypeScript/React frontend skeleton
--> local Postgres/Redis dev environment
+-> local Postgres dev environment
 -> configuration and secret conventions
 -> provider/runtime interface placeholders
 -> CI and verification commands
@@ -29,7 +29,7 @@ silently committing product behavior too early.
 - Create the initial monorepo structure for AgentDock.
 - Add a Go backend skeleton with clear package boundaries.
 - Add a TypeScript/React web console skeleton.
-- Add local development infrastructure for Postgres and Redis.
+- Add local development infrastructure for Postgres.
 - Add configuration loading and `.env.example` conventions without committing
   real secrets.
 - Add placeholder boundaries for sandbox providers, agent runtimes, repository
@@ -97,8 +97,8 @@ The Go backend should include:
 - HTTP server setup with request context, timeouts, request IDs, and graceful
   shutdown.
 - `GET /healthz` for process health.
-- `GET /readyz` for dependency readiness, allowed to report degraded database or
-  Redis state during local development.
+- `GET /readyz` for dependency readiness, allowed to report degraded database
+  state during local development.
 - Package boundaries for domain models, storage, API handlers, background
   workers, sandbox providers, agent runtimes, repository integrations, checks,
   and eval.
@@ -130,7 +130,7 @@ patch review, or eval views beyond placeholder routes.
 
 Sprint 1 should make local setup predictable:
 
-- `deploy/docker-compose.yml` or equivalent for Postgres and Redis.
+- `deploy/docker-compose.yml` or equivalent for Postgres.
 - `.env.example` documenting required local variables.
 - `.env.local` ignored by git.
 - No real Daytona, OpenRouter, Anthropic, GitHub, or encryption keys committed.
@@ -149,8 +149,8 @@ are introduced only in later smoke-test work.
 
 Sprint 1 should document and scaffold these secret categories:
 
-- Platform infrastructure secrets: database URL, Redis URL, app/session secret,
-  encryption key.
+- Platform infrastructure secrets: database URL, app/session secret, encryption
+  key.
 - Sandbox provider secrets: Daytona API key and related endpoint settings.
 - Model provider secrets: user-supplied OpenRouter, Anthropic, or later runtime
   keys.
@@ -191,7 +191,7 @@ The CI path must not require Daytona, OpenRouter, Anthropic, or GitHub keys.
 Sprint 1 is complete when:
 
 - The repository has a clear backend/frontend/deploy/script structure.
-- A developer can start Postgres and Redis locally.
+- A developer can start Postgres locally.
 - A developer can run the backend locally and hit `GET /healthz`.
 - A developer can run the frontend locally and see the AgentDock app shell.
 - The frontend can call the backend health endpoint.

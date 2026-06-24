@@ -9,7 +9,6 @@ import (
 const (
 	envHTTPAddr          = "AGENTDOCK_HTTP_ADDR"
 	envDatabaseURL       = "AGENTDOCK_DATABASE_URL"
-	envRedisURL          = "AGENTDOCK_REDIS_URL"
 	envAppSecret         = "AGENTDOCK_APP_SECRET"
 	envEncryptionKey     = "AGENTDOCK_ENCRYPTION_KEY"
 	envCORSAllowedOrigin = "AGENTDOCK_CORS_ALLOWED_ORIGIN"
@@ -19,7 +18,6 @@ type Config struct {
 	ServiceName       string
 	HTTPAddr          string
 	DatabaseURL       string
-	RedisURL          string
 	AppSecret         string
 	EncryptionKey     string
 	CORSAllowedOrigin string
@@ -30,7 +28,6 @@ func Load(env map[string]string) (Config, error) {
 		ServiceName:       "agentdock-api",
 		HTTPAddr:          valueOrDefault(env, envHTTPAddr, ":8080"),
 		DatabaseURL:       strings.TrimSpace(env[envDatabaseURL]),
-		RedisURL:          strings.TrimSpace(env[envRedisURL]),
 		AppSecret:         strings.TrimSpace(env[envAppSecret]),
 		EncryptionKey:     strings.TrimSpace(env[envEncryptionKey]),
 		CORSAllowedOrigin: valueOrDefault(env, envCORSAllowedOrigin, "http://localhost:5173"),
@@ -42,7 +39,6 @@ func Load(env map[string]string) (Config, error) {
 		value string
 	}{
 		{envDatabaseURL, cfg.DatabaseURL},
-		{envRedisURL, cfg.RedisURL},
 		{envAppSecret, cfg.AppSecret},
 		{envEncryptionKey, cfg.EncryptionKey},
 	} {
@@ -71,7 +67,6 @@ func (cfg Config) RedactedValues() map[string]string {
 	return map[string]string{
 		envHTTPAddr:          cfg.HTTPAddr,
 		envDatabaseURL:       "[redacted]",
-		envRedisURL:          "[redacted]",
 		envAppSecret:         "[redacted]",
 		envEncryptionKey:     "[redacted]",
 		envCORSAllowedOrigin: cfg.CORSAllowedOrigin,

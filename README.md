@@ -2,7 +2,7 @@
 
 AgentDock is a Go-first control plane for managed coding-agent runs in remote
 sandboxes. Sprint 1 establishes the project skeleton: Go backend, React web
-console, local Postgres/Redis dependencies, configuration conventions, provider
+console, local Postgres dependency, configuration conventions, provider
 boundary placeholders, and CI verification.
 
 ## Local Setup

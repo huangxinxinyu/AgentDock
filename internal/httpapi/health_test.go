@@ -64,6 +64,25 @@ func TestReadyzReportsDependencyFailures(t *testing.T) {
 	}
 }
 
+func TestDefaultReadyzDoesNotIncludeRedis(t *testing.T) {
+	router := NewRouter(Dependencies{
+		ServiceName: "agentdock-api",
+		StartedAt:   time.Now(),
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	var body Readiness
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if _, ok := body.Dependencies["redis"]; ok {
+		t.Fatalf("default readiness includes redis dependency: %#v", body.Dependencies)
+	}
+}
+
 func TestRouterSetsCORSForAllowedOrigin(t *testing.T) {
 	router := NewRouter(Dependencies{
 		ServiceName:       "agentdock-api",

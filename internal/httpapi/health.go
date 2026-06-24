@@ -59,7 +59,6 @@ func defaultReadiness(context.Context) Readiness {
 		Status: "degraded",
 		Dependencies: map[string]DependencyStatus{
 			"postgres": {Status: "not_configured", Message: "readiness probe not wired in Sprint 1"},
-			"redis":    {Status: "not_configured", Message: "readiness probe not wired in Sprint 1"},
 		},
 	}
 }

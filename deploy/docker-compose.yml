@@ -15,18 +15,5 @@ services:
     volumes:
       - agentdock-postgres:/var/lib/postgresql/data
 
-  redis:
-    image: redis:8-alpine
-    ports:
-      - "6379:6379"
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-    volumes:
-      - agentdock-redis:/data
-
 volumes:
   agentdock-postgres:
-  agentdock-redis:

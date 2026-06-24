@@ -6,7 +6,6 @@ func FromOS() map[string]string {
 	keys := []string{
 		envHTTPAddr,
 		envDatabaseURL,
-		envRedisURL,
 		envAppSecret,
 		envEncryptionKey,
 		envCORSAllowedOrigin,
