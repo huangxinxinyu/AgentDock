@@ -162,6 +162,115 @@ func (svc *ResourceService) InspectSandbox(ctx context.Context, id string) (doma
 	return session, nil
 }
 
+func (svc *ResourceService) CreateSandboxTask(ctx context.Context, sandboxID string, req httpapi.CreateSandboxTaskRequest) (domain.SandboxTask, error) {
+	session, err := svc.store.GetSandbox(ctx, sandboxID)
+	if err != nil {
+		return domain.SandboxTask{}, mapStoreError(err)
+	}
+	if session.State != domain.SandboxStateReady {
+		return domain.SandboxTask{}, errors.New("sandbox is not ready")
+	}
+	workdir := strings.TrimSpace(req.Workdir)
+	if workdir == "" {
+		workdir = session.DefaultWorkdir
+	}
+	task, err := svc.store.CreateSandboxTask(ctx, store.CreateSandboxTaskParams{
+		SandboxSessionID: sandboxID,
+		Prompt:           req.Prompt,
+		Entrypoint:       req.Entrypoint,
+		Workdir:          workdir,
+	})
+	if err != nil {
+		return domain.SandboxTask{}, err
+	}
+	if _, err := svc.store.AppendSandboxTaskEvent(ctx, task.ID, domain.SandboxTaskEventQueued, "task queued", "{}"); err != nil {
+		return domain.SandboxTask{}, err
+	}
+	task, err = svc.store.UpdateSandboxTaskState(ctx, task.ID, domain.SandboxTaskStateQueued, domain.SandboxTaskStateStarting, "", "", "")
+	if err != nil {
+		return domain.SandboxTask{}, err
+	}
+	if _, err := svc.store.AppendSandboxTaskEvent(ctx, task.ID, domain.SandboxTaskEventStarting, "task starting", "{}"); err != nil {
+		return domain.SandboxTask{}, err
+	}
+	task, err = svc.store.UpdateSandboxTaskState(ctx, task.ID, domain.SandboxTaskStateStarting, domain.SandboxTaskStateRunning, "", "", "")
+	if err != nil {
+		return domain.SandboxTask{}, err
+	}
+	if _, err := svc.store.AppendSandboxTaskEvent(ctx, task.ID, domain.SandboxTaskEventRunning, "task running", "{}"); err != nil {
+		return domain.SandboxTask{}, err
+	}
+	result, err := svc.provider.RunTask(ctx, sandbox.TaskRequest{
+		TaskID:  task.ID,
+		Prompt:  task.Prompt,
+		Workdir: task.Workdir,
+		Session: sandbox.SessionRef{ProviderSessionID: session.ProviderSessionID, State: string(session.State)},
+	})
+	if err != nil {
+		failed, updateErr := svc.store.UpdateSandboxTaskState(ctx, task.ID, domain.SandboxTaskStateRunning, domain.SandboxTaskStateFailed, "", "", err.Error())
+		if updateErr != nil {
+			return domain.SandboxTask{}, updateErr
+		}
+		_, _ = svc.store.AppendSandboxTaskEvent(ctx, task.ID, domain.SandboxTaskEventFailed, err.Error(), "{}")
+		return failed, nil
+	}
+	task, err = svc.store.UpdateSandboxTaskState(ctx, task.ID, domain.SandboxTaskStateRunning, domain.SandboxTaskStateSucceeded, result.Summary, result.OutputRef, "")
+	if err != nil {
+		return domain.SandboxTask{}, err
+	}
+	if result.OutputRef != "" {
+		if _, err := svc.store.AppendSandboxTaskEvent(ctx, task.ID, domain.SandboxTaskEventOutput, result.OutputRef, "{}"); err != nil {
+			return domain.SandboxTask{}, err
+		}
+	}
+	if _, err := svc.store.AppendSandboxTaskEvent(ctx, task.ID, domain.SandboxTaskEventSucceeded, "task succeeded", "{}"); err != nil {
+		return domain.SandboxTask{}, err
+	}
+	return task, nil
+}
+
+func (svc *ResourceService) ListSandboxTasks(ctx context.Context, sandboxID string) ([]domain.SandboxTask, error) {
+	return svc.store.ListSandboxTasks(ctx, sandboxID)
+}
+
+func (svc *ResourceService) GetSandboxTask(ctx context.Context, id string) (domain.SandboxTask, error) {
+	task, err := svc.store.GetSandboxTask(ctx, id)
+	return task, mapStoreError(err)
+}
+
+func (svc *ResourceService) ListSandboxTaskEvents(ctx context.Context, taskID string) ([]domain.SandboxTaskEvent, error) {
+	return svc.store.ListSandboxTaskEvents(ctx, taskID)
+}
+
+func (svc *ResourceService) CancelSandboxTask(ctx context.Context, id string) (domain.SandboxTask, error) {
+	task, err := svc.store.GetSandboxTask(ctx, id)
+	if err != nil {
+		return domain.SandboxTask{}, mapStoreError(err)
+	}
+	if task.State == domain.SandboxTaskStateCancelled {
+		return task, nil
+	}
+	if task.State == domain.SandboxTaskStateSucceeded || task.State == domain.SandboxTaskStateFailed {
+		return task, nil
+	}
+	session, err := svc.store.GetSandbox(ctx, task.SandboxSessionID)
+	if err != nil {
+		return domain.SandboxTask{}, mapStoreError(err)
+	}
+	_ = svc.provider.CancelTask(ctx, sandbox.TaskRef{
+		TaskID:  task.ID,
+		Session: sandbox.SessionRef{ProviderSessionID: session.ProviderSessionID, State: string(session.State)},
+	})
+	cancelled, err := svc.store.UpdateSandboxTaskState(ctx, task.ID, task.State, domain.SandboxTaskStateCancelled, "", "", "")
+	if err != nil {
+		return domain.SandboxTask{}, err
+	}
+	if _, err := svc.store.AppendSandboxTaskEvent(ctx, task.ID, domain.SandboxTaskEventCancelled, "task cancelled", "{}"); err != nil {
+		return domain.SandboxTask{}, err
+	}
+	return cancelled, nil
+}
+
 func (svc *ResourceService) transitionSandbox(ctx context.Context, id string, target domain.SandboxState, callProvider func(context.Context, sandbox.SessionRef) (sandbox.SessionObservation, error)) (domain.SandboxSession, error) {
 	session, err := svc.store.GetSandbox(ctx, id)
 	if err != nil {

@@ -374,6 +374,73 @@ li {
   gap: 8px;
 }
 
+.task-panel {
+  margin-top: 20px;
+  border-top: 1px solid #e1e5df;
+  padding-top: 16px;
+}
+
+.task-form {
+  display: grid;
+  gap: 10px;
+}
+
+.task-form label {
+  display: grid;
+  gap: 6px;
+  color: #69736d;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.task-form textarea {
+  width: 100%;
+  min-width: 0;
+  resize: vertical;
+  border: 1px solid #cbd3cc;
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: #1d2328;
+  font: inherit;
+}
+
+.task-form button {
+  justify-self: start;
+  border: 0;
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #2f6f56;
+  color: #ffffff;
+  font: inherit;
+  font-weight: 800;
+}
+
+.task-form button:disabled {
+  background: #aab4ad;
+}
+
+.task-list,
+.task-events {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.task-row,
+.task-events div {
+  display: grid;
+  gap: 5px;
+  border: 1px solid #d9ded8;
+  border-radius: 8px;
+  padding: 10px;
+  background: #f8faf7;
+}
+
+.task-row small,
+.task-events small {
+  color: #69736d;
+}
+
 .error-text {
   margin: 12px 0 0;
   color: #9b261f;

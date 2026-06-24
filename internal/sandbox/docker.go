@@ -115,6 +115,45 @@ func (provider DockerProvider) InspectSession(ctx context.Context, ref SessionRe
 	return SessionObservation{State: dockerStatusToSandboxState(strings.TrimSpace(output))}, nil
 }
 
+func (provider DockerProvider) RunTask(ctx context.Context, request TaskRequest) (TaskResult, error) {
+	if provider.image == "" {
+		return TaskResult{}, ErrProviderNotConfigured
+	}
+	workdir := strings.TrimSpace(request.Workdir)
+	if workdir == "" {
+		workdir = provider.defaultWorkdir
+	}
+	output, err := provider.runner.Run(
+		ctx,
+		"docker",
+		"exec",
+		request.Session.ProviderSessionID,
+		"agentos",
+		"run",
+		"--task-id",
+		request.TaskID,
+		"--workdir",
+		workdir,
+		"--prompt",
+		request.Prompt,
+	)
+	if err != nil {
+		return TaskResult{}, fmt.Errorf("docker exec agentos task: %w", err)
+	}
+	return TaskResult{Summary: strings.TrimSpace(output), OutputRef: workdir}, nil
+}
+
+func (provider DockerProvider) CancelTask(ctx context.Context, request TaskRef) error {
+	if provider.image == "" {
+		return ErrProviderNotConfigured
+	}
+	_, err := provider.runner.Run(ctx, "docker", "exec", request.Session.ProviderSessionID, "agentos", "cancel", "--task-id", request.TaskID)
+	if err != nil {
+		return fmt.Errorf("docker exec agentos cancel: %w", err)
+	}
+	return nil
+}
+
 func (provider DockerProvider) runDocker(ctx context.Context, args ...string) error {
 	if provider.image == "" {
 		return ErrProviderNotConfigured

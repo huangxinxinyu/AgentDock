@@ -3,8 +3,12 @@ import { useEffect, useMemo, useState } from "react";
 import {
   type BackendHealth,
   type SandboxSession,
+  type SandboxTask,
+  type SandboxTaskEvent,
   createSandbox,
+  createSandboxTask,
   fetchBackendHealth,
+  listSandboxTaskEvents,
   listSandboxes,
   sandboxAction,
 } from "./api";
@@ -47,6 +51,9 @@ export function App({ apiBaseUrl, fetcher }: AppProps) {
   const [sandboxes, setSandboxes] = useState<SandboxSession[]>([]);
   const [sandboxName, setSandboxName] = useState("");
   const [sandboxError, setSandboxError] = useState("");
+  const [taskPrompt, setTaskPrompt] = useState("");
+  const [tasks, setTasks] = useState<SandboxTask[]>([]);
+  const [taskEvents, setTaskEvents] = useState<SandboxTaskEvent[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -124,6 +131,33 @@ export function App({ apiBaseUrl, fetcher }: AppProps) {
           candidate.id === updated.id ? updated : candidate,
         ),
       );
+      setSandboxError("");
+    } catch (error) {
+      setSandboxError(error instanceof Error ? error.message : "unknown error");
+    }
+  }
+
+  async function handleRunTask(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const prompt = taskPrompt.trim();
+    if (!selectedSandbox || prompt === "") {
+      return;
+    }
+    try {
+      const task = await createSandboxTask(
+        resolvedApiBaseUrl,
+        selectedSandbox.id,
+        { prompt },
+        fetcher,
+      );
+      setTasks((current) => [task, ...current]);
+      setTaskPrompt("");
+      const events = await listSandboxTaskEvents(
+        resolvedApiBaseUrl,
+        task.id,
+        fetcher,
+      );
+      setTaskEvents(events);
       setSandboxError("");
     } catch (error) {
       setSandboxError(error instanceof Error ? error.message : "unknown error");
@@ -291,6 +325,53 @@ export function App({ apiBaseUrl, fetcher }: AppProps) {
                   >
                     Close
                   </button>
+                </div>
+                <div className="task-panel">
+                  <p className="section-label">AgentOS task</p>
+                  <form className="task-form" onSubmit={handleRunTask}>
+                    <label>
+                      Task prompt
+                      <textarea
+                        value={taskPrompt}
+                        onChange={(event) => setTaskPrompt(event.target.value)}
+                        rows={3}
+                        placeholder="Create a small Python project"
+                      />
+                    </label>
+                    <button
+                      type="submit"
+                      disabled={
+                        selectedSandbox.state !== "ready" ||
+                        taskPrompt.trim() === ""
+                      }
+                    >
+                      Run task
+                    </button>
+                  </form>
+                  <div className="task-list">
+                    {tasks.length === 0 ? (
+                      <p className="empty-state">No tasks yet.</p>
+                    ) : (
+                      tasks.map((task) => (
+                        <article className="task-row" key={task.id}>
+                          <span className={`state-badge ${task.state}`}>
+                            {task.state}
+                          </span>
+                          {task.summary && <strong>{task.summary}</strong>}
+                          {task.output_ref && <small>{task.output_ref}</small>}
+                        </article>
+                      ))
+                    )}
+                  </div>
+                  <div className="task-events">
+                    {taskEvents.map((event) => (
+                      <div key={`${event.sandbox_task_id}-${event.sequence}`}>
+                        <span>{event.sequence}</span>
+                        <strong>{event.type}</strong>
+                        {event.message && <small>{event.message}</small>}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </>
             ) : (

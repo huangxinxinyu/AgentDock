@@ -84,6 +84,13 @@ type CreateSandboxParams struct {
 	LastError         string
 }
 
+type CreateSandboxTaskParams struct {
+	SandboxSessionID string
+	Prompt           string
+	Entrypoint       string
+	Workdir          string
+}
+
 func (store *PostgresStore) CreateWorkspace(ctx context.Context, params CreateWorkspaceParams) (domain.Workspace, error) {
 	workspace := domain.Workspace{ID: newID(), Name: strings.TrimSpace(params.Name)}
 	err := store.db.QueryRowContext(ctx, `
@@ -443,9 +450,123 @@ func (store *PostgresStore) UpdateSandboxState(ctx context.Context, id string, f
 	`, pausedExpr, closedExpr), id, to, lastError, from))
 }
 
+func (store *PostgresStore) CreateSandboxTask(ctx context.Context, params CreateSandboxTaskParams) (domain.SandboxTask, error) {
+	task := domain.SandboxTask{
+		ID:               newID(),
+		SandboxSessionID: params.SandboxSessionID,
+		Prompt:           strings.TrimSpace(params.Prompt),
+		State:            domain.SandboxTaskStateQueued,
+		Entrypoint:       strings.TrimSpace(params.Entrypoint),
+		Workdir:          strings.TrimSpace(params.Workdir),
+	}
+	if task.Entrypoint == "" {
+		task.Entrypoint = "agentos-sdk-python"
+	}
+	if task.Workdir == "" {
+		task.Workdir = "/workspace"
+	}
+	err := store.db.QueryRowContext(ctx, `
+		INSERT INTO sandbox_tasks(id, sandbox_session_id, prompt, state, entrypoint, workdir)
+		VALUES ($1, $2, $3, $4, $5, $6)
+		RETURNING created_at, updated_at, COALESCE(started_at, '0001-01-01'::timestamptz), COALESCE(completed_at, '0001-01-01'::timestamptz)
+	`, task.ID, task.SandboxSessionID, task.Prompt, task.State, task.Entrypoint, task.Workdir).Scan(&task.CreatedAt, &task.UpdatedAt, &task.StartedAt, &task.CompletedAt)
+	return task, wrapSQLError(err)
+}
+
+func (store *PostgresStore) ListSandboxTasks(ctx context.Context, sandboxID string) ([]domain.SandboxTask, error) {
+	rows, err := store.db.QueryContext(ctx, sandboxTaskSelectSQL()+` WHERE sandbox_session_id = $1 ORDER BY created_at DESC`, sandboxID)
+	if err != nil {
+		return nil, fmt.Errorf("list sandbox tasks: %w", err)
+	}
+	defer rows.Close()
+	var tasks []domain.SandboxTask
+	for rows.Next() {
+		task, err := scanSandboxTask(rows)
+		if err != nil {
+			return nil, err
+		}
+		tasks = append(tasks, task)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate sandbox tasks: %w", err)
+	}
+	return tasks, nil
+}
+
+func (store *PostgresStore) GetSandboxTask(ctx context.Context, id string) (domain.SandboxTask, error) {
+	return scanSandboxTaskRow(store.db.QueryRowContext(ctx, sandboxTaskSelectSQL()+` WHERE id = $1`, id))
+}
+
+func (store *PostgresStore) UpdateSandboxTaskState(ctx context.Context, id string, from domain.SandboxTaskState, to domain.SandboxTaskState, summary string, outputRef string, lastError string) (domain.SandboxTask, error) {
+	if err := domain.ValidateSandboxTaskTransition(from, to); err != nil {
+		return domain.SandboxTask{}, err
+	}
+	startedExpr := "started_at"
+	if to == domain.SandboxTaskStateRunning {
+		startedExpr = "COALESCE(started_at, now())"
+	}
+	completedExpr := "completed_at"
+	if to == domain.SandboxTaskStateSucceeded || to == domain.SandboxTaskStateFailed || to == domain.SandboxTaskStateCancelled {
+		completedExpr = "now()"
+	}
+	return scanSandboxTaskRow(store.db.QueryRowContext(ctx, fmt.Sprintf(`
+		UPDATE sandbox_tasks
+		SET state = $2,
+			summary = CASE WHEN $3 = '' THEN summary ELSE $3 END,
+			output_ref = CASE WHEN $4 = '' THEN output_ref ELSE $4 END,
+			last_error = $5,
+			updated_at = now(),
+			started_at = %s,
+			completed_at = %s
+		WHERE id = $1 AND state = $6
+		RETURNING id, sandbox_session_id, prompt, state, entrypoint, workdir, summary, output_ref, last_error, created_at, updated_at, COALESCE(started_at, '0001-01-01'::timestamptz), COALESCE(completed_at, '0001-01-01'::timestamptz)
+	`, startedExpr, completedExpr), id, to, summary, outputRef, lastError, from))
+}
+
+func (store *PostgresStore) AppendSandboxTaskEvent(ctx context.Context, taskID string, eventType domain.SandboxTaskEventType, message string, payload string) (domain.SandboxTaskEvent, error) {
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return domain.SandboxTaskEvent{}, fmt.Errorf("begin append sandbox task event: %w", err)
+	}
+	defer rollbackUnlessCommitted(tx)
+	event, err := appendSandboxTaskEventTx(ctx, tx, taskID, eventType, message, payload)
+	if err != nil {
+		return domain.SandboxTaskEvent{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return domain.SandboxTaskEvent{}, fmt.Errorf("commit append sandbox task event: %w", err)
+	}
+	return event, nil
+}
+
+func (store *PostgresStore) ListSandboxTaskEvents(ctx context.Context, taskID string) ([]domain.SandboxTaskEvent, error) {
+	rows, err := store.db.QueryContext(ctx, `
+		SELECT id, sandbox_task_id, sequence, type, message, payload::text, created_at
+		FROM sandbox_task_events
+		WHERE sandbox_task_id = $1
+		ORDER BY sequence
+	`, taskID)
+	if err != nil {
+		return nil, fmt.Errorf("list sandbox task events: %w", err)
+	}
+	defer rows.Close()
+	var events []domain.SandboxTaskEvent
+	for rows.Next() {
+		var event domain.SandboxTaskEvent
+		if err := rows.Scan(&event.ID, &event.SandboxTaskID, &event.Sequence, &event.Type, &event.Message, &event.Payload, &event.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan sandbox task event: %w", err)
+		}
+		events = append(events, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate sandbox task events: %w", err)
+	}
+	return events, nil
+}
+
 func (store *PostgresStore) TruncateForTest(ctx context.Context) error {
 	_, err := store.db.ExecContext(ctx, `
-		TRUNCATE sandbox_sessions, run_events, runs, issues, agents, repositories, workspaces
+		TRUNCATE sandbox_task_events, sandbox_tasks, sandbox_sessions, run_events, runs, issues, agents, repositories, workspaces
 		RESTART IDENTITY CASCADE
 	`)
 	return err
@@ -565,6 +686,67 @@ func sandboxSelectSQL() string {
 		SELECT id, name, provider, COALESCE(provider_session_id, ''), state, default_workdir, COALESCE(agentos_image, ''), metadata::text, last_error, created_at, updated_at, COALESCE(last_started_at, '0001-01-01'::timestamptz), COALESCE(last_paused_at, '0001-01-01'::timestamptz), COALESCE(closed_at, '0001-01-01'::timestamptz)
 		FROM sandbox_sessions
 	`
+}
+
+func sandboxTaskSelectSQL() string {
+	return `
+		SELECT id, sandbox_session_id, prompt, state, entrypoint, workdir, summary, output_ref, last_error, created_at, updated_at, COALESCE(started_at, '0001-01-01'::timestamptz), COALESCE(completed_at, '0001-01-01'::timestamptz)
+		FROM sandbox_tasks
+	`
+}
+
+func scanSandboxTaskRow(row rowScanner) (domain.SandboxTask, error) {
+	var task domain.SandboxTask
+	err := row.Scan(
+		&task.ID,
+		&task.SandboxSessionID,
+		&task.Prompt,
+		&task.State,
+		&task.Entrypoint,
+		&task.Workdir,
+		&task.Summary,
+		&task.OutputRef,
+		&task.LastError,
+		&task.CreatedAt,
+		&task.UpdatedAt,
+		&task.StartedAt,
+		&task.CompletedAt,
+	)
+	return task, wrapSQLError(err)
+}
+
+func scanSandboxTask(row rowScanner) (domain.SandboxTask, error) {
+	task, err := scanSandboxTaskRow(row)
+	if err != nil {
+		return domain.SandboxTask{}, fmt.Errorf("scan sandbox task: %w", err)
+	}
+	return task, nil
+}
+
+func appendSandboxTaskEventTx(ctx context.Context, tx *sql.Tx, taskID string, eventType domain.SandboxTaskEventType, message string, payload string) (domain.SandboxTaskEvent, error) {
+	if _, err := tx.ExecContext(ctx, `SELECT id FROM sandbox_tasks WHERE id = $1 FOR UPDATE`, taskID); err != nil {
+		return domain.SandboxTaskEvent{}, fmt.Errorf("lock sandbox task for event: %w", err)
+	}
+	if strings.TrimSpace(payload) == "" {
+		payload = "{}"
+	}
+	event := domain.SandboxTaskEvent{ID: newID(), SandboxTaskID: taskID, Type: eventType, Message: message, Payload: payload}
+	err := tx.QueryRowContext(ctx, `
+		INSERT INTO sandbox_task_events(id, sandbox_task_id, sequence, type, message, payload)
+		VALUES (
+			$1,
+			$2,
+			(SELECT COALESCE(MAX(sequence), 0) + 1 FROM sandbox_task_events WHERE sandbox_task_id = $2),
+			$3,
+			$4,
+			$5::jsonb
+		)
+		RETURNING sequence, created_at
+	`, event.ID, event.SandboxTaskID, event.Type, event.Message, event.Payload).Scan(&event.Sequence, &event.CreatedAt)
+	if err != nil {
+		return domain.SandboxTaskEvent{}, fmt.Errorf("append sandbox task event: %w", err)
+	}
+	return event, nil
 }
 
 func wrapSQLError(err error) error {

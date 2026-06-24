@@ -85,3 +85,31 @@ func TestDockerProviderLifecycleCommands(t *testing.T) {
 		}
 	}
 }
+
+func TestDockerProviderRunsAgentOSTask(t *testing.T) {
+	runner := &fakeCommandRunner{output: "created files\n"}
+	provider := NewDockerProvider(DockerConfig{
+		AgentOSImage: "agentos:test",
+		Runner:       runner,
+	})
+
+	result, err := provider.RunTask(context.Background(), TaskRequest{
+		TaskID:  "task-1",
+		Prompt:  "create a file",
+		Workdir: "/workspace",
+		Session: SessionRef{ProviderSessionID: "container-123", State: "ready"},
+	})
+	if err != nil {
+		t.Fatalf("RunTask returned error: %v", err)
+	}
+
+	if result.Summary != "created files" {
+		t.Fatalf("summary = %q, want command output", result.Summary)
+	}
+	joined := strings.Join(runner.calls, "\n")
+	for _, want := range []string{"exec container-123", "agentos", "run", "--task-id task-1", "--workdir /workspace"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("docker calls = %q, missing %q", joined, want)
+		}
+	}
+}

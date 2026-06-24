@@ -30,6 +30,41 @@ export type CreateSandboxInput = {
   agentos_image?: string;
 };
 
+export type SandboxTaskState =
+  | "queued"
+  | "starting"
+  | "running"
+  | "succeeded"
+  | "failed"
+  | "cancelled";
+
+export type SandboxTask = {
+  id: string;
+  sandbox_session_id: string;
+  prompt?: string;
+  state: SandboxTaskState;
+  entrypoint?: string;
+  workdir?: string;
+  summary?: string;
+  output_ref?: string;
+  last_error?: string;
+};
+
+export type SandboxTaskEvent = {
+  id?: string;
+  sandbox_task_id: string;
+  sequence: number;
+  type: string;
+  message?: string;
+  payload?: string;
+};
+
+export type CreateSandboxTaskInput = {
+  prompt: string;
+  entrypoint?: string;
+  workdir?: string;
+};
+
 type Fetcher = typeof fetch;
 
 export async function fetchBackendHealth(
@@ -131,4 +166,68 @@ export async function inspectSandbox(
     throw new Error(`inspect sandbox returned ${response.status}`);
   }
   return (await response.json()) as SandboxSession;
+}
+
+export async function createSandboxTask(
+  apiBaseUrl: string,
+  sandboxID: string,
+  input: CreateSandboxTaskInput,
+  fetcher: Fetcher = fetch,
+): Promise<SandboxTask> {
+  const baseUrl = apiBaseUrl.replace(/\/+$/, "");
+  const response = await fetcher(`${baseUrl}/sandboxes/${sandboxID}/tasks`, {
+    method: "POST",
+    headers: { Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!response.ok) {
+    throw new Error(`create sandbox task returned ${response.status}`);
+  }
+  return (await response.json()) as SandboxTask;
+}
+
+export async function listSandboxTasks(
+  apiBaseUrl: string,
+  sandboxID: string,
+  fetcher: Fetcher = fetch,
+): Promise<SandboxTask[]> {
+  const baseUrl = apiBaseUrl.replace(/\/+$/, "");
+  const response = await fetcher(`${baseUrl}/sandboxes/${sandboxID}/tasks`, {
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw new Error(`list sandbox tasks returned ${response.status}`);
+  }
+  return (await response.json()) as SandboxTask[];
+}
+
+export async function listSandboxTaskEvents(
+  apiBaseUrl: string,
+  taskID: string,
+  fetcher: Fetcher = fetch,
+): Promise<SandboxTaskEvent[]> {
+  const baseUrl = apiBaseUrl.replace(/\/+$/, "");
+  const response = await fetcher(`${baseUrl}/sandbox-tasks/${taskID}/events`, {
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw new Error(`list sandbox task events returned ${response.status}`);
+  }
+  return (await response.json()) as SandboxTaskEvent[];
+}
+
+export async function cancelSandboxTask(
+  apiBaseUrl: string,
+  taskID: string,
+  fetcher: Fetcher = fetch,
+): Promise<SandboxTask> {
+  const baseUrl = apiBaseUrl.replace(/\/+$/, "");
+  const response = await fetcher(`${baseUrl}/sandbox-tasks/${taskID}/cancel`, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw new Error(`cancel sandbox task returned ${response.status}`);
+  }
+  return (await response.json()) as SandboxTask;
 }

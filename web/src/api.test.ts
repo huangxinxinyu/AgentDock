@@ -2,8 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   createSandbox,
+  createSandboxTask,
   fetchBackendHealth,
   inspectSandbox,
+  listSandboxTaskEvents,
   listSandboxes,
 } from "./api";
 
@@ -103,5 +105,59 @@ describe("sandbox api", () => {
       },
     );
     expect(sandbox.provider).toBe("local-docker");
+  });
+
+  it("creates a sandbox task", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: "task-1",
+        sandbox_session_id: "sandbox-1",
+        state: "succeeded",
+      }),
+    });
+
+    const task = await createSandboxTask(
+      "http://127.0.0.1:8080",
+      "sandbox-1",
+      { prompt: "create a file" },
+      fetchMock,
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:8080/sandboxes/sandbox-1/tasks",
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ prompt: "create a file" }),
+      },
+    );
+    expect(task.state).toBe("succeeded");
+  });
+
+  it("lists sandbox task events", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => [
+        { sandbox_task_id: "task-1", sequence: 1, type: "task_queued" },
+      ],
+    });
+
+    const events = await listSandboxTaskEvents(
+      "http://127.0.0.1:8080",
+      "task-1",
+      fetchMock,
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:8080/sandbox-tasks/task-1/events",
+      {
+        headers: { Accept: "application/json" },
+      },
+    );
+    expect(events).toHaveLength(1);
   });
 });

@@ -12,11 +12,12 @@ import (
 )
 
 type recordingResourceService struct {
-	createWorkspaceReq CreateWorkspaceRequest
-	createRunReq       CreateRunRequest
-	createSandboxReq   CreateSandboxRequest
-	pauseSandboxID     string
-	inspectSandboxID   string
+	createWorkspaceReq  CreateWorkspaceRequest
+	createRunReq        CreateRunRequest
+	createSandboxReq    CreateSandboxRequest
+	pauseSandboxID      string
+	inspectSandboxID    string
+	createTaskSandboxID string
 }
 
 func (svc *recordingResourceService) CreateWorkspace(_ context.Context, req CreateWorkspaceRequest) (domain.Workspace, error) {
@@ -86,6 +87,27 @@ func (svc *recordingResourceService) CloseSandbox(context.Context, string) (doma
 func (svc *recordingResourceService) InspectSandbox(_ context.Context, id string) (domain.SandboxSession, error) {
 	svc.inspectSandboxID = id
 	return domain.SandboxSession{ID: id, Name: "scratch", Provider: "noop", State: domain.SandboxStateReady}, nil
+}
+
+func (svc *recordingResourceService) CreateSandboxTask(_ context.Context, sandboxID string, req CreateSandboxTaskRequest) (domain.SandboxTask, error) {
+	svc.createTaskSandboxID = sandboxID
+	return domain.SandboxTask{ID: "task-1", SandboxSessionID: sandboxID, Prompt: req.Prompt, State: domain.SandboxTaskStateSucceeded, Workdir: "/workspace"}, nil
+}
+
+func (svc *recordingResourceService) ListSandboxTasks(context.Context, string) ([]domain.SandboxTask, error) {
+	return []domain.SandboxTask{{ID: "task-1", SandboxSessionID: "sandbox-1", State: domain.SandboxTaskStateSucceeded}}, nil
+}
+
+func (svc *recordingResourceService) GetSandboxTask(context.Context, string) (domain.SandboxTask, error) {
+	return domain.SandboxTask{}, ErrNotFound
+}
+
+func (svc *recordingResourceService) ListSandboxTaskEvents(context.Context, string) ([]domain.SandboxTaskEvent, error) {
+	return []domain.SandboxTaskEvent{{SandboxTaskID: "task-1", Sequence: 1, Type: domain.SandboxTaskEventQueued}}, nil
+}
+
+func (svc *recordingResourceService) CancelSandboxTask(context.Context, string) (domain.SandboxTask, error) {
+	return domain.SandboxTask{}, nil
 }
 
 func TestCreateWorkspaceEndpoint(t *testing.T) {
@@ -183,5 +205,34 @@ func TestInspectSandboxEndpoint(t *testing.T) {
 	}
 	if svc.inspectSandboxID != "sandbox-1" {
 		t.Fatalf("inspect sandbox id = %q", svc.inspectSandboxID)
+	}
+}
+
+func TestCreateSandboxTaskEndpoint(t *testing.T) {
+	svc := &recordingResourceService{}
+	router := NewRouter(Dependencies{Resources: svc})
+
+	req := httptest.NewRequest(http.MethodPost, "/sandboxes/sandbox-1/tasks", bytes.NewBufferString(`{"prompt":"create a file"}`))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d; body = %s", rec.Code, http.StatusAccepted, rec.Body.String())
+	}
+	if svc.createTaskSandboxID != "sandbox-1" {
+		t.Fatalf("task sandbox id = %q", svc.createTaskSandboxID)
+	}
+}
+
+func TestListSandboxTaskEventsEndpoint(t *testing.T) {
+	svc := &recordingResourceService{}
+	router := NewRouter(Dependencies{Resources: svc})
+
+	req := httptest.NewRequest(http.MethodGet, "/sandbox-tasks/task-1/events", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body = %s", rec.Code, http.StatusOK, rec.Body.String())
 	}
 }

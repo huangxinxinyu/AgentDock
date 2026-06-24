@@ -8,6 +8,8 @@ type Provider interface {
 	ResumeSession(context.Context, SessionRef) (SessionObservation, error)
 	CloseSession(context.Context, SessionRef) (SessionObservation, error)
 	InspectSession(context.Context, SessionRef) (SessionObservation, error)
+	RunTask(context.Context, TaskRequest) (TaskResult, error)
+	CancelTask(context.Context, TaskRef) error
 }
 
 type CreateSessionRequest struct {
@@ -32,6 +34,23 @@ type SessionRef struct {
 type SessionObservation struct {
 	State    string
 	Metadata string
+}
+
+type TaskRequest struct {
+	TaskID  string
+	Prompt  string
+	Workdir string
+	Session SessionRef
+}
+
+type TaskResult struct {
+	Summary   string
+	OutputRef string
+}
+
+type TaskRef struct {
+	TaskID  string
+	Session SessionRef
 }
 
 type NoopProvider struct{}
@@ -63,4 +82,15 @@ func (NoopProvider) CloseSession(context.Context, SessionRef) (SessionObservatio
 
 func (NoopProvider) InspectSession(_ context.Context, ref SessionRef) (SessionObservation, error) {
 	return SessionObservation{State: ref.State}, nil
+}
+
+func (NoopProvider) RunTask(_ context.Context, request TaskRequest) (TaskResult, error) {
+	return TaskResult{
+		Summary:   "noop AgentOS task completed for: " + request.Prompt,
+		OutputRef: request.Workdir,
+	}, nil
+}
+
+func (NoopProvider) CancelTask(context.Context, TaskRef) error {
+	return nil
 }
