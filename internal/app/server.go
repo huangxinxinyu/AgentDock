@@ -38,7 +38,8 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Applicat
 		return nil, err
 	}
 
-	resourceService := NewResourceService(postgresStore)
+	sandboxProvider := sandbox.NoopProvider{}
+	resourceService := NewResourceService(postgresStore, sandboxProvider)
 	deps := httpapi.Dependencies{
 		ServiceName:       cfg.ServiceName,
 		CORSAllowedOrigin: cfg.CORSAllowedOrigin,
@@ -64,7 +65,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Applicat
 	return &Application{
 		HTTPServer: newHTTPServer(cfg, httpapi.NewRouter(deps)),
 		store:      postgresStore,
-		worker:     worker.NewProcessor(postgresStore, sandbox.NoopProvider{}, runtime.NoopRunner{}),
+		worker:     worker.NewProcessor(postgresStore, sandboxProvider, runtime.NoopRunner{}),
 	}, nil
 }
 

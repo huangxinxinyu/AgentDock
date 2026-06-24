@@ -51,11 +51,11 @@ func (store *memoryRunStore) AppendRunEvent(_ context.Context, runID string, eve
 
 func (store *memoryRunStore) RecordSandboxSession(_ context.Context, params RecordSandboxSessionParams) (domain.SandboxSession, error) {
 	session := domain.SandboxSession{
-		IssueID:           params.IssueID,
-		RunID:             params.RunID,
+		Name:              params.Name,
 		Provider:          params.Provider,
 		ProviderSessionID: params.ProviderSessionID,
-		State:             "active",
+		State:             params.State,
+		DefaultWorkdir:    params.DefaultWorkdir,
 	}
 	store.sessions = append(store.sessions, session)
 	return session, nil

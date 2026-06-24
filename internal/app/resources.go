@@ -3,18 +3,24 @@ package app
 import (
 	"context"
 	"errors"
+	"strings"
 
 	"github.com/huangxinxinyu/agentdock/internal/domain"
 	"github.com/huangxinxinyu/agentdock/internal/httpapi"
+	"github.com/huangxinxinyu/agentdock/internal/sandbox"
 	"github.com/huangxinxinyu/agentdock/internal/store"
 )
 
 type ResourceService struct {
-	store *store.PostgresStore
+	store    *store.PostgresStore
+	provider sandbox.Provider
 }
 
-func NewResourceService(store *store.PostgresStore) *ResourceService {
-	return &ResourceService{store: store}
+func NewResourceService(store *store.PostgresStore, provider sandbox.Provider) *ResourceService {
+	if provider == nil {
+		provider = sandbox.NoopProvider{}
+	}
+	return &ResourceService{store: store, provider: provider}
 }
 
 func (svc *ResourceService) CreateWorkspace(ctx context.Context, req httpapi.CreateWorkspaceRequest) (domain.Workspace, error) {
@@ -75,6 +81,80 @@ func (svc *ResourceService) GetRun(ctx context.Context, id string) (domain.Run, 
 
 func (svc *ResourceService) ListRunEvents(ctx context.Context, runID string) ([]domain.RunEvent, error) {
 	return svc.store.ListRunEvents(ctx, runID)
+}
+
+func (svc *ResourceService) CreateSandbox(ctx context.Context, req httpapi.CreateSandboxRequest) (domain.SandboxSession, error) {
+	providerName := strings.TrimSpace(req.Provider)
+	if providerName == "" {
+		providerName = "noop"
+	}
+	defaultWorkdir := strings.TrimSpace(req.DefaultWorkdir)
+	if defaultWorkdir == "" {
+		defaultWorkdir = "/workspace"
+	}
+	session, err := svc.provider.CreateSession(ctx, sandbox.CreateSessionRequest{
+		Name:           req.Name,
+		DefaultWorkdir: defaultWorkdir,
+		AgentOSImage:   req.AgentOSImage,
+	})
+	if err != nil {
+		return domain.SandboxSession{}, err
+	}
+	return svc.store.CreateSandbox(ctx, store.CreateSandboxParams{
+		Name:              req.Name,
+		Provider:          providerName,
+		ProviderSessionID: session.ID,
+		State:             domain.SandboxState(session.State),
+		DefaultWorkdir:    session.DefaultWorkdir,
+		AgentOSImage:      req.AgentOSImage,
+		Metadata:          session.Metadata,
+	})
+}
+
+func (svc *ResourceService) ListSandboxes(ctx context.Context) ([]domain.SandboxSession, error) {
+	return svc.store.ListSandboxes(ctx)
+}
+
+func (svc *ResourceService) GetSandbox(ctx context.Context, id string) (domain.SandboxSession, error) {
+	session, err := svc.store.GetSandbox(ctx, id)
+	return session, mapStoreError(err)
+}
+
+func (svc *ResourceService) PauseSandbox(ctx context.Context, id string) (domain.SandboxSession, error) {
+	return svc.transitionSandbox(ctx, id, domain.SandboxStatePaused, svc.provider.PauseSession)
+}
+
+func (svc *ResourceService) ResumeSandbox(ctx context.Context, id string) (domain.SandboxSession, error) {
+	return svc.transitionSandbox(ctx, id, domain.SandboxStateReady, svc.provider.ResumeSession)
+}
+
+func (svc *ResourceService) CloseSandbox(ctx context.Context, id string) (domain.SandboxSession, error) {
+	return svc.transitionSandbox(ctx, id, domain.SandboxStateClosed, svc.provider.CloseSession)
+}
+
+func (svc *ResourceService) transitionSandbox(ctx context.Context, id string, target domain.SandboxState, callProvider func(context.Context, sandbox.SessionRef) (sandbox.SessionObservation, error)) (domain.SandboxSession, error) {
+	session, err := svc.store.GetSandbox(ctx, id)
+	if err != nil {
+		return domain.SandboxSession{}, mapStoreError(err)
+	}
+	if session.State == target {
+		return session, nil
+	}
+	if err := domain.ValidateSandboxTransition(session.State, target); err != nil {
+		return domain.SandboxSession{}, err
+	}
+	observed, err := callProvider(ctx, sandbox.SessionRef{
+		ProviderSessionID: session.ProviderSessionID,
+		State:             string(session.State),
+	})
+	if err != nil {
+		return domain.SandboxSession{}, err
+	}
+	nextState := target
+	if observed.State != "" {
+		nextState = domain.SandboxState(observed.State)
+	}
+	return svc.store.UpdateSandboxState(ctx, id, session.State, nextState, "")
 }
 
 func mapStoreError(err error) error {

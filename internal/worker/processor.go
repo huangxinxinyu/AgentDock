@@ -44,17 +44,19 @@ func (processor *Processor) ProcessNext(ctx context.Context) (bool, error) {
 		return true, err
 	}
 	session, err := processor.provider.CreateSession(ctx, sandbox.CreateSessionRequest{
-		WorkspaceID: "",
-		IssueID:     run.IssueID,
+		Name:           "run-" + run.ID,
+		DefaultWorkdir: "/workspace",
 	})
 	if err != nil {
 		return true, err
 	}
 	if _, err := processor.store.RecordSandboxSession(ctx, RecordSandboxSessionParams{
-		IssueID:           run.IssueID,
-		RunID:             run.ID,
+		Name:              "run-" + run.ID,
 		Provider:          session.Provider,
 		ProviderSessionID: session.ID,
+		State:             domain.SandboxStateReady,
+		DefaultWorkdir:    session.DefaultWorkdir,
+		Metadata:          session.Metadata,
 	}); err != nil {
 		return true, err
 	}

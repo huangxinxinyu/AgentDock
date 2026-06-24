@@ -22,6 +22,12 @@ type ResourceService interface {
 	CreateRun(context.Context, string, CreateRunRequest) (domain.Run, error)
 	GetRun(context.Context, string) (domain.Run, error)
 	ListRunEvents(context.Context, string) ([]domain.RunEvent, error)
+	CreateSandbox(context.Context, CreateSandboxRequest) (domain.SandboxSession, error)
+	ListSandboxes(context.Context) ([]domain.SandboxSession, error)
+	GetSandbox(context.Context, string) (domain.SandboxSession, error)
+	PauseSandbox(context.Context, string) (domain.SandboxSession, error)
+	ResumeSandbox(context.Context, string) (domain.SandboxSession, error)
+	CloseSandbox(context.Context, string) (domain.SandboxSession, error)
 }
 
 type CreateWorkspaceRequest struct {
@@ -47,6 +53,13 @@ type CreateIssueRequest struct {
 
 type CreateRunRequest struct {
 	IdempotencyKey string `json:"-"`
+}
+
+type CreateSandboxRequest struct {
+	Name           string `json:"name"`
+	Provider       string `json:"provider"`
+	DefaultWorkdir string `json:"default_workdir"`
+	AgentOSImage   string `json:"agentos_image"`
 }
 
 func registerResourceRoutes(mux *http.ServeMux, svc ResourceService) {
@@ -118,6 +131,40 @@ func registerResourceRoutes(mux *http.ServeMux, svc ResourceService) {
 	mux.HandleFunc("GET /runs/{id}/events", func(w http.ResponseWriter, r *http.Request) {
 		events, err := svc.ListRunEvents(r.Context(), r.PathValue("id"))
 		writeResourceResponse(w, http.StatusOK, events, err)
+	})
+
+	mux.HandleFunc("POST /sandboxes", func(w http.ResponseWriter, r *http.Request) {
+		var req CreateSandboxRequest
+		if !decodeJSON(w, r, &req) {
+			return
+		}
+		session, err := svc.CreateSandbox(r.Context(), req)
+		writeResourceResponse(w, http.StatusCreated, session, err)
+	})
+
+	mux.HandleFunc("GET /sandboxes", func(w http.ResponseWriter, r *http.Request) {
+		sessions, err := svc.ListSandboxes(r.Context())
+		writeResourceResponse(w, http.StatusOK, sessions, err)
+	})
+
+	mux.HandleFunc("GET /sandboxes/{id}", func(w http.ResponseWriter, r *http.Request) {
+		session, err := svc.GetSandbox(r.Context(), r.PathValue("id"))
+		writeResourceResponse(w, http.StatusOK, session, err)
+	})
+
+	mux.HandleFunc("POST /sandboxes/{id}/pause", func(w http.ResponseWriter, r *http.Request) {
+		session, err := svc.PauseSandbox(r.Context(), r.PathValue("id"))
+		writeResourceResponse(w, http.StatusOK, session, err)
+	})
+
+	mux.HandleFunc("POST /sandboxes/{id}/resume", func(w http.ResponseWriter, r *http.Request) {
+		session, err := svc.ResumeSandbox(r.Context(), r.PathValue("id"))
+		writeResourceResponse(w, http.StatusOK, session, err)
+	})
+
+	mux.HandleFunc("POST /sandboxes/{id}/close", func(w http.ResponseWriter, r *http.Request) {
+		session, err := svc.CloseSandbox(r.Context(), r.PathValue("id"))
+		writeResourceResponse(w, http.StatusOK, session, err)
 	})
 }
 

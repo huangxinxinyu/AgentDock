@@ -248,6 +248,143 @@ li {
   font-size: 15px;
 }
 
+.sandbox-lab {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(280px, 0.9fr);
+  gap: 16px;
+}
+
+.sandbox-panel {
+  border: 1px solid #d9ded8;
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 20px;
+}
+
+.sandbox-panel h3 {
+  margin: 0 0 16px;
+  font-size: 20px;
+}
+
+.sandbox-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.sandbox-form label {
+  display: grid;
+  gap: 6px;
+  color: #69736d;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.sandbox-form input {
+  min-width: 0;
+  border: 1px solid #cbd3cc;
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: #1d2328;
+  font: inherit;
+}
+
+.sandbox-form button,
+.sandbox-actions button {
+  border: 0;
+  border-radius: 6px;
+  padding: 10px 12px;
+  background: #2f6f56;
+  color: #ffffff;
+  font: inherit;
+  font-weight: 800;
+}
+
+.sandbox-form button:disabled,
+.sandbox-actions button:disabled {
+  background: #aab4ad;
+}
+
+.sandbox-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.sandbox-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 58px;
+  border: 1px solid #d9ded8;
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: #f8faf7;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.sandbox-row small {
+  display: block;
+  margin-top: 3px;
+  color: #69736d;
+  font-size: 12px;
+}
+
+.state-badge {
+  border-radius: 999px;
+  padding: 5px 8px;
+  background: #e8ece8;
+  color: #39413c;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.state-badge.ready {
+  background: #dcefe4;
+  color: #1f6641;
+}
+
+.state-badge.paused {
+  background: #fff1c7;
+  color: #735800;
+}
+
+.state-badge.closed,
+.state-badge.failed {
+  background: #f8dddd;
+  color: #8f241f;
+}
+
+.sandbox-panel.detail dl {
+  margin-bottom: 16px;
+}
+
+.sandbox-panel dd {
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.sandbox-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.error-text {
+  margin: 12px 0 0;
+  color: #9b261f;
+  font-size: 13px;
+}
+
+.empty-state {
+  margin: 0;
+  color: #69736d;
+}
+
 @media (max-width: 780px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -277,7 +414,12 @@ li {
   }
 
   .status-grid,
+  .sandbox-lab,
   .route-band {
+    grid-template-columns: 1fr;
+  }
+
+  .sandbox-form {
     grid-template-columns: 1fr;
   }
 

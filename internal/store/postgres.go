@@ -73,6 +73,17 @@ type CreateRunParams struct {
 	IdempotencyKey string
 }
 
+type CreateSandboxParams struct {
+	Name              string
+	Provider          string
+	ProviderSessionID string
+	State             domain.SandboxState
+	DefaultWorkdir    string
+	AgentOSImage      string
+	Metadata          string
+	LastError         string
+}
+
 func (store *PostgresStore) CreateWorkspace(ctx context.Context, params CreateWorkspaceParams) (domain.Workspace, error) {
 	workspace := domain.Workspace{ID: newID(), Name: strings.TrimSpace(params.Name)}
 	err := store.db.QueryRowContext(ctx, `
@@ -339,20 +350,97 @@ func (store *PostgresStore) AppendRunEvent(ctx context.Context, runID string, ev
 }
 
 func (store *PostgresStore) RecordSandboxSession(ctx context.Context, params domain.RecordSandboxSessionParams) (domain.SandboxSession, error) {
+	return store.CreateSandbox(ctx, CreateSandboxParams{
+		Name:              params.Name,
+		Provider:          params.Provider,
+		ProviderSessionID: params.ProviderSessionID,
+		State:             params.State,
+		DefaultWorkdir:    params.DefaultWorkdir,
+		AgentOSImage:      params.AgentOSImage,
+		Metadata:          params.Metadata,
+		LastError:         params.LastError,
+	})
+}
+
+func (store *PostgresStore) CreateSandbox(ctx context.Context, params CreateSandboxParams) (domain.SandboxSession, error) {
 	session := domain.SandboxSession{
 		ID:                newID(),
-		IssueID:           params.IssueID,
-		RunID:             params.RunID,
+		Name:              strings.TrimSpace(params.Name),
 		Provider:          strings.TrimSpace(params.Provider),
 		ProviderSessionID: strings.TrimSpace(params.ProviderSessionID),
-		State:             "active",
+		State:             params.State,
+		DefaultWorkdir:    strings.TrimSpace(params.DefaultWorkdir),
+		AgentOSImage:      strings.TrimSpace(params.AgentOSImage),
+		Metadata:          strings.TrimSpace(params.Metadata),
+		LastError:         strings.TrimSpace(params.LastError),
+	}
+	if session.Provider == "" {
+		session.Provider = "noop"
+	}
+	if session.State == "" {
+		session.State = domain.SandboxStateReady
+	}
+	if session.DefaultWorkdir == "" {
+		session.DefaultWorkdir = "/workspace"
+	}
+	if session.Metadata == "" {
+		session.Metadata = "{}"
 	}
 	err := store.db.QueryRowContext(ctx, `
-		INSERT INTO sandbox_sessions(id, issue_id, run_id, provider, provider_session_id, state)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		RETURNING created_at
-	`, session.ID, session.IssueID, session.RunID, session.Provider, session.ProviderSessionID, session.State).Scan(&session.CreatedAt)
+		INSERT INTO sandbox_sessions(id, name, provider, provider_session_id, state, default_workdir, agentos_image, metadata, last_error)
+		VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, NULLIF($7, ''), $8::jsonb, $9)
+		RETURNING created_at, updated_at, COALESCE(last_started_at, '0001-01-01'::timestamptz), COALESCE(last_paused_at, '0001-01-01'::timestamptz), COALESCE(closed_at, '0001-01-01'::timestamptz)
+	`, session.ID, session.Name, session.Provider, session.ProviderSessionID, session.State, session.DefaultWorkdir, session.AgentOSImage, session.Metadata, session.LastError).Scan(&session.CreatedAt, &session.UpdatedAt, &session.LastStartedAt, &session.LastPausedAt, &session.ClosedAt)
 	return session, wrapSQLError(err)
+}
+
+func (store *PostgresStore) ListSandboxes(ctx context.Context) ([]domain.SandboxSession, error) {
+	rows, err := store.db.QueryContext(ctx, sandboxSelectSQL()+` ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("list sandboxes: %w", err)
+	}
+	defer rows.Close()
+
+	var sessions []domain.SandboxSession
+	for rows.Next() {
+		session, err := scanSandbox(rows)
+		if err != nil {
+			return nil, err
+		}
+		sessions = append(sessions, session)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate sandboxes: %w", err)
+	}
+	return sessions, nil
+}
+
+func (store *PostgresStore) GetSandbox(ctx context.Context, id string) (domain.SandboxSession, error) {
+	return scanSandboxRow(store.db.QueryRowContext(ctx, sandboxSelectSQL()+` WHERE id = $1`, id))
+}
+
+func (store *PostgresStore) UpdateSandboxState(ctx context.Context, id string, from domain.SandboxState, to domain.SandboxState, lastError string) (domain.SandboxSession, error) {
+	if err := domain.ValidateSandboxTransition(from, to); err != nil {
+		return domain.SandboxSession{}, err
+	}
+	pausedExpr := "last_paused_at"
+	if to == domain.SandboxStatePaused {
+		pausedExpr = "now()"
+	}
+	closedExpr := "closed_at"
+	if to == domain.SandboxStateClosed {
+		closedExpr = "now()"
+	}
+	return scanSandboxRow(store.db.QueryRowContext(ctx, fmt.Sprintf(`
+		UPDATE sandbox_sessions
+		SET state = $2,
+			last_error = $3,
+			updated_at = now(),
+			last_paused_at = %s,
+			closed_at = %s
+		WHERE id = $1 AND state = $4
+		RETURNING id, name, provider, COALESCE(provider_session_id, ''), state, default_workdir, COALESCE(agentos_image, ''), metadata::text, last_error, created_at, updated_at, COALESCE(last_started_at, '0001-01-01'::timestamptz), COALESCE(last_paused_at, '0001-01-01'::timestamptz), COALESCE(closed_at, '0001-01-01'::timestamptz)
+	`, pausedExpr, closedExpr), id, to, lastError, from))
 }
 
 func (store *PostgresStore) TruncateForTest(ctx context.Context) error {
@@ -437,6 +525,46 @@ func appendRunEventTx(ctx context.Context, tx *sql.Tx, runID string, eventType d
 		return domain.RunEvent{}, fmt.Errorf("append run event: %w", err)
 	}
 	return event, nil
+}
+
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanSandboxRow(row rowScanner) (domain.SandboxSession, error) {
+	var session domain.SandboxSession
+	err := row.Scan(
+		&session.ID,
+		&session.Name,
+		&session.Provider,
+		&session.ProviderSessionID,
+		&session.State,
+		&session.DefaultWorkdir,
+		&session.AgentOSImage,
+		&session.Metadata,
+		&session.LastError,
+		&session.CreatedAt,
+		&session.UpdatedAt,
+		&session.LastStartedAt,
+		&session.LastPausedAt,
+		&session.ClosedAt,
+	)
+	return session, wrapSQLError(err)
+}
+
+func scanSandbox(row rowScanner) (domain.SandboxSession, error) {
+	session, err := scanSandboxRow(row)
+	if err != nil {
+		return domain.SandboxSession{}, fmt.Errorf("scan sandbox: %w", err)
+	}
+	return session, nil
+}
+
+func sandboxSelectSQL() string {
+	return `
+		SELECT id, name, provider, COALESCE(provider_session_id, ''), state, default_workdir, COALESCE(agentos_image, ''), metadata::text, last_error, created_at, updated_at, COALESCE(last_started_at, '0001-01-01'::timestamptz), COALESCE(last_paused_at, '0001-01-01'::timestamptz), COALESCE(closed_at, '0001-01-01'::timestamptz)
+		FROM sandbox_sessions
+	`
 }
 
 func wrapSQLError(err error) error {

@@ -123,19 +123,63 @@ type RunEvent struct {
 	CreatedAt time.Time    `json:"created_at,omitempty"`
 }
 
+type SandboxState string
+
+const (
+	SandboxStateCreating SandboxState = "creating"
+	SandboxStateReady    SandboxState = "ready"
+	SandboxStatePaused   SandboxState = "paused"
+	SandboxStateClosing  SandboxState = "closing"
+	SandboxStateClosed   SandboxState = "closed"
+	SandboxStateFailed   SandboxState = "failed"
+)
+
+func ValidateSandboxTransition(from SandboxState, to SandboxState) error {
+	if from == to {
+		switch from {
+		case SandboxStateReady, SandboxStatePaused, SandboxStateClosed:
+			return nil
+		}
+	}
+	allowed := map[SandboxState][]SandboxState{
+		SandboxStateCreating: {SandboxStateReady, SandboxStateFailed, SandboxStateClosing},
+		SandboxStateReady:    {SandboxStatePaused, SandboxStateClosing, SandboxStateFailed},
+		SandboxStatePaused:   {SandboxStateReady, SandboxStateClosing, SandboxStateFailed},
+		SandboxStateClosing:  {SandboxStateClosed, SandboxStateFailed},
+		SandboxStateFailed:   {SandboxStateClosing},
+	}
+	for _, candidate := range allowed[from] {
+		if candidate == to {
+			return nil
+		}
+	}
+	return fmt.Errorf("invalid sandbox transition %s -> %s", from, to)
+}
+
 type SandboxSession struct {
-	ID                string    `json:"id"`
-	IssueID           string    `json:"issue_id"`
-	RunID             string    `json:"run_id"`
-	Provider          string    `json:"provider"`
-	ProviderSessionID string    `json:"provider_session_id"`
-	State             string    `json:"state"`
-	CreatedAt         time.Time `json:"created_at,omitempty"`
+	ID                string       `json:"id"`
+	Name              string       `json:"name"`
+	Provider          string       `json:"provider"`
+	ProviderSessionID string       `json:"provider_session_id,omitempty"`
+	State             SandboxState `json:"state"`
+	DefaultWorkdir    string       `json:"default_workdir"`
+	AgentOSImage      string       `json:"agentos_image,omitempty"`
+	Metadata          string       `json:"metadata,omitempty"`
+	LastError         string       `json:"last_error,omitempty"`
+	CreatedAt         time.Time    `json:"created_at,omitempty"`
+	UpdatedAt         time.Time    `json:"updated_at,omitempty"`
+	LastStartedAt     time.Time    `json:"last_started_at,omitempty"`
+	LastPausedAt      time.Time    `json:"last_paused_at,omitempty"`
+	ClosedAt          time.Time    `json:"closed_at,omitempty"`
 }
 
 type RecordSandboxSessionParams struct {
-	IssueID           string
-	RunID             string
+	Name              string
 	Provider          string
 	ProviderSessionID string
+	State             SandboxState
+	DefaultWorkdir    string
+	AgentOSImage      string
+	Metadata          string
+	LastError         string
 }

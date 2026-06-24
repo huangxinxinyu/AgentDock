@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 
-import { type BackendHealth, fetchBackendHealth } from "./api";
+import {
+  type BackendHealth,
+  type SandboxSession,
+  createSandbox,
+  fetchBackendHealth,
+  listSandboxes,
+  sandboxAction,
+} from "./api";
 import "./styles.css";
 
 type AppProps = {
@@ -37,6 +44,9 @@ export function App({ apiBaseUrl, fetcher }: AppProps) {
     status: "degraded",
     message: "checking",
   });
+  const [sandboxes, setSandboxes] = useState<SandboxSession[]>([]);
+  const [sandboxName, setSandboxName] = useState("");
+  const [sandboxError, setSandboxError] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -52,7 +62,73 @@ export function App({ apiBaseUrl, fetcher }: AppProps) {
     };
   }, [fetcher, resolvedApiBaseUrl]);
 
+  useEffect(() => {
+    let active = true;
+
+    void listSandboxes(resolvedApiBaseUrl, fetcher)
+      .then((nextSandboxes) => {
+        if (active) {
+          setSandboxes(nextSandboxes);
+          setSandboxError("");
+        }
+      })
+      .catch((error: unknown) => {
+        if (active) {
+          setSandboxError(
+            error instanceof Error ? error.message : "unknown error",
+          );
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [fetcher, resolvedApiBaseUrl]);
+
   const isOnline = health.status === "ok";
+  const selectedSandbox = sandboxes[0];
+
+  async function handleCreateSandbox(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const name = sandboxName.trim();
+    if (name === "") {
+      return;
+    }
+    try {
+      const sandbox = await createSandbox(
+        resolvedApiBaseUrl,
+        { name, agentos_image: "" },
+        fetcher,
+      );
+      setSandboxes((current) => [sandbox, ...current]);
+      setSandboxName("");
+      setSandboxError("");
+    } catch (error) {
+      setSandboxError(error instanceof Error ? error.message : "unknown error");
+    }
+  }
+
+  async function handleSandboxAction(
+    sandbox: SandboxSession,
+    action: "pause" | "resume" | "close",
+  ) {
+    try {
+      const updated = await sandboxAction(
+        resolvedApiBaseUrl,
+        sandbox.id,
+        action,
+        fetcher,
+      );
+      setSandboxes((current) =>
+        current.map((candidate) =>
+          candidate.id === updated.id ? updated : candidate,
+        ),
+      );
+      setSandboxError("");
+    } catch (error) {
+      setSandboxError(error instanceof Error ? error.message : "unknown error");
+    }
+  }
 
   return (
     <main className="app-shell">
@@ -78,8 +154,8 @@ export function App({ apiBaseUrl, fetcher }: AppProps) {
       <section className="workspace">
         <header className="topbar">
           <div>
-            <p className="eyebrow">Sprint 1 skeleton</p>
-            <h2>Work Management Shell</h2>
+            <p className="eyebrow">Sandbox Lab</p>
+            <h2>Sandbox control surface</h2>
           </div>
           <div
             className={`health-pill ${isOnline ? "ok" : "degraded"}`}
@@ -115,6 +191,112 @@ export function App({ apiBaseUrl, fetcher }: AppProps) {
               ))}
             </ul>
           </article>
+        </section>
+
+        <section className="sandbox-lab" aria-label="Sandbox Lab">
+          <div className="sandbox-panel">
+            <div>
+              <p className="section-label">Sandbox Lab</p>
+              <h3>Sessions</h3>
+            </div>
+            <form className="sandbox-form" onSubmit={handleCreateSandbox}>
+              <label>
+                Sandbox name
+                <input
+                  value={sandboxName}
+                  onChange={(event) => setSandboxName(event.target.value)}
+                  placeholder="Scratch"
+                />
+              </label>
+              <button type="submit" disabled={sandboxName.trim() === ""}>
+                Create sandbox
+              </button>
+            </form>
+            {sandboxError && <p className="error-text">{sandboxError}</p>}
+            <div className="sandbox-list">
+              {sandboxes.length === 0 ? (
+                <p className="empty-state">No sandboxes yet.</p>
+              ) : (
+                sandboxes.map((sandbox) => (
+                  <button
+                    className="sandbox-row"
+                    key={sandbox.id}
+                    type="button"
+                    aria-label={`Select ${sandbox.name}`}
+                  >
+                    <span>
+                      <strong>{sandbox.name}</strong>
+                      <small>{sandbox.provider}</small>
+                    </span>
+                    <span className={`state-badge ${sandbox.state}`}>
+                      {sandbox.state}
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="sandbox-panel detail">
+            <p className="section-label">Details</p>
+            {selectedSandbox ? (
+              <>
+                <h3>{selectedSandbox.name}</h3>
+                <dl>
+                  <div>
+                    <dt>Provider</dt>
+                    <dd>{selectedSandbox.provider}</dd>
+                  </div>
+                  <div>
+                    <dt>Session</dt>
+                    <dd>{selectedSandbox.provider_session_id ?? "pending"}</dd>
+                  </div>
+                  <div>
+                    <dt>Workdir</dt>
+                    <dd>{selectedSandbox.default_workdir ?? "/workspace"}</dd>
+                  </div>
+                  <div>
+                    <dt>AgentOS</dt>
+                    <dd>{selectedSandbox.agentos_image || "not configured"}</dd>
+                  </div>
+                </dl>
+                {selectedSandbox.last_error && (
+                  <p className="error-text">{selectedSandbox.last_error}</p>
+                )}
+                <div className="sandbox-actions">
+                  <button
+                    type="button"
+                    disabled={selectedSandbox.state !== "ready"}
+                    onClick={() =>
+                      void handleSandboxAction(selectedSandbox, "pause")
+                    }
+                  >
+                    Pause
+                  </button>
+                  <button
+                    type="button"
+                    disabled={selectedSandbox.state !== "paused"}
+                    onClick={() =>
+                      void handleSandboxAction(selectedSandbox, "resume")
+                    }
+                  >
+                    Resume
+                  </button>
+                  <button
+                    type="button"
+                    disabled={selectedSandbox.state === "closed"}
+                    onClick={() =>
+                      void handleSandboxAction(selectedSandbox, "close")
+                    }
+                  >
+                    Close
+                  </button>
+                </div>
+              </>
+            ) : (
+              <p className="empty-state">Select a sandbox to inspect it.</p>
+            )}
+          </div>
         </section>
 
         <section className="route-band" aria-label="Route placeholders">

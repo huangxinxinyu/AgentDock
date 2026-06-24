@@ -14,6 +14,8 @@ import (
 type recordingResourceService struct {
 	createWorkspaceReq CreateWorkspaceRequest
 	createRunReq       CreateRunRequest
+	createSandboxReq   CreateSandboxRequest
+	pauseSandboxID     string
 }
 
 func (svc *recordingResourceService) CreateWorkspace(_ context.Context, req CreateWorkspaceRequest) (domain.Workspace, error) {
@@ -52,6 +54,32 @@ func (svc *recordingResourceService) GetRun(context.Context, string) (domain.Run
 
 func (svc *recordingResourceService) ListRunEvents(context.Context, string) ([]domain.RunEvent, error) {
 	return nil, nil
+}
+
+func (svc *recordingResourceService) CreateSandbox(_ context.Context, req CreateSandboxRequest) (domain.SandboxSession, error) {
+	svc.createSandboxReq = req
+	return domain.SandboxSession{ID: "sandbox-1", Name: req.Name, Provider: "noop", State: domain.SandboxStateReady, DefaultWorkdir: "/workspace"}, nil
+}
+
+func (svc *recordingResourceService) ListSandboxes(context.Context) ([]domain.SandboxSession, error) {
+	return []domain.SandboxSession{{ID: "sandbox-1", Name: "scratch", Provider: "noop", State: domain.SandboxStateReady}}, nil
+}
+
+func (svc *recordingResourceService) GetSandbox(context.Context, string) (domain.SandboxSession, error) {
+	return domain.SandboxSession{}, ErrNotFound
+}
+
+func (svc *recordingResourceService) PauseSandbox(_ context.Context, id string) (domain.SandboxSession, error) {
+	svc.pauseSandboxID = id
+	return domain.SandboxSession{ID: id, Name: "scratch", Provider: "noop", State: domain.SandboxStatePaused}, nil
+}
+
+func (svc *recordingResourceService) ResumeSandbox(context.Context, string) (domain.SandboxSession, error) {
+	return domain.SandboxSession{}, nil
+}
+
+func (svc *recordingResourceService) CloseSandbox(context.Context, string) (domain.SandboxSession, error) {
+	return domain.SandboxSession{}, nil
 }
 
 func TestCreateWorkspaceEndpoint(t *testing.T) {
@@ -93,5 +121,45 @@ func TestCreateRunEndpointPassesIdempotencyKey(t *testing.T) {
 	}
 	if svc.createRunReq.IdempotencyKey != "retry-key-1" {
 		t.Fatalf("idempotency key = %q", svc.createRunReq.IdempotencyKey)
+	}
+}
+
+func TestCreateSandboxEndpoint(t *testing.T) {
+	svc := &recordingResourceService{}
+	router := NewRouter(Dependencies{Resources: svc})
+
+	req := httptest.NewRequest(http.MethodPost, "/sandboxes", bytes.NewBufferString(`{"name":"Scratch","agentos_image":"agentos:test"}`))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d; body = %s", rec.Code, http.StatusCreated, rec.Body.String())
+	}
+	if svc.createSandboxReq.Name != "Scratch" {
+		t.Fatalf("sandbox request = %#v", svc.createSandboxReq)
+	}
+
+	var sandbox domain.SandboxSession
+	if err := json.NewDecoder(rec.Body).Decode(&sandbox); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if sandbox.State != domain.SandboxStateReady {
+		t.Fatalf("sandbox state = %s, want ready", sandbox.State)
+	}
+}
+
+func TestPauseSandboxEndpoint(t *testing.T) {
+	svc := &recordingResourceService{}
+	router := NewRouter(Dependencies{Resources: svc})
+
+	req := httptest.NewRequest(http.MethodPost, "/sandboxes/sandbox-1/pause", bytes.NewBufferString(`{}`))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if svc.pauseSandboxID != "sandbox-1" {
+		t.Fatalf("pause sandbox id = %q", svc.pauseSandboxID)
 	}
 }
