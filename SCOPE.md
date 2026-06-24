@@ -51,7 +51,7 @@ This makes sandboxing, traceability, reproducibility, and evals first-class part
 6. The sandbox clones or receives the repository.
 7. The runtime starts the agent with the task prompt, skills, and allowed tools.
 8. The backend streams run events to the web console.
-9. The agent produces a summary and patch.
+9. The agent produces a summary and, when code changed, a patch.
 10. The issue is marked succeeded, failed, cancelled, or awaiting review.
 
 ## MVP Components

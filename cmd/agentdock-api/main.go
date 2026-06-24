@@ -22,11 +22,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	server, err := app.NewServer(cfg, logger)
+	startupCtx, startupCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer startupCancel()
+	application, err := app.New(startupCtx, cfg, logger)
 	if err != nil {
 		logger.Error("server setup failed", "error", err)
 		os.Exit(1)
 	}
+	defer func() {
+		if err := application.Close(); err != nil {
+			logger.Error("application close failed", "error", err)
+		}
+	}()
+	server := application.HTTPServer
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -35,6 +43,11 @@ func main() {
 	go func() {
 		logger.Info("http server listening", "addr", server.Addr)
 		errCh <- server.ListenAndServe()
+	}()
+	go func() {
+		if err := application.StartWorker(ctx); err != nil && !errors.Is(err, context.Canceled) {
+			errCh <- err
+		}
 	}()
 
 	select {

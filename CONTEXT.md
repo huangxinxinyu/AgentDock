@@ -18,6 +18,8 @@ _Avoid_: ticket, task request
 
 **Run**:
 One execution attempt for an issue by an agent in a prepared remote environment.
+Runs may complete with a summary only; completion does not imply that a patch
+was produced.
 _Avoid_: task, job
 
 **Run State**:
@@ -42,6 +44,7 @@ _Avoid_: log line, transcript message
 
 **Patch Review**:
 The issue-level review state for code changes produced by a run, including the diff, summary, checks, and the decision to apply, reject, or request follow-up.
+Patch review exists only when a run produces reviewable code changes.
 _Avoid_: pull request, merge request
 
 **Patch Version**:

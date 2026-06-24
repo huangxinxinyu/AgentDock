@@ -1,5 +1,6 @@
 SHELL := /bin/sh
 GOCACHE ?= $(CURDIR)/.cache/go-build
+GOMODCACHE ?= $(CURDIR)/.cache/go-mod
 
 .PHONY: install deps-up deps-down backend frontend go-test frontend-test test go-build frontend-build build format format-check lint typecheck migrations-check ci
 
@@ -13,13 +14,13 @@ deps-down:
 	docker compose -f deploy/docker-compose.yml down
 
 backend:
-	env GOCACHE=$(GOCACHE) sh scripts/run-backend.sh
+	env GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) sh scripts/run-backend.sh
 
 frontend:
 	cd web && npm run dev
 
 go-test:
-	env GOCACHE=$(GOCACHE) sh scripts/go-test.sh
+	env GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) sh scripts/go-test.sh
 
 frontend-test:
 	cd web && npm test
@@ -28,7 +29,7 @@ test: go-test frontend-test
 
 go-build:
 	mkdir -p .cache/bin
-	env GOCACHE=$(GOCACHE) go build -o .cache/bin/agentdock-api ./cmd/agentdock-api
+	env GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) go build -o .cache/bin/agentdock-api ./cmd/agentdock-api
 
 frontend-build:
 	cd web && npm run build

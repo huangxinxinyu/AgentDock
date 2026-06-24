@@ -12,6 +12,7 @@ type Dependencies struct {
 	StartedAt         time.Time
 	CORSAllowedOrigin string
 	Readiness         func(context.Context) Readiness
+	Resources         ResourceService
 }
 
 type DependencyStatus struct {
@@ -50,6 +51,7 @@ func NewRouter(deps Dependencies) http.Handler {
 		}
 		writeJSON(w, status, readiness)
 	})
+	registerResourceRoutes(mux, deps.Resources)
 
 	return requestIDMiddleware(corsMiddleware(deps.CORSAllowedOrigin, mux))
 }
