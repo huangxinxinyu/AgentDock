@@ -116,3 +116,19 @@ export async function sandboxAction(
   }
   return (await response.json()) as SandboxSession;
 }
+
+export async function inspectSandbox(
+  apiBaseUrl: string,
+  sandboxID: string,
+  fetcher: Fetcher = fetch,
+): Promise<SandboxSession> {
+  const baseUrl = apiBaseUrl.replace(/\/+$/, "");
+  const response = await fetcher(`${baseUrl}/sandboxes/${sandboxID}/inspect`, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+  });
+  if (!response.ok) {
+    throw new Error(`inspect sandbox returned ${response.status}`);
+  }
+  return (await response.json()) as SandboxSession;
+}

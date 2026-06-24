@@ -9,6 +9,8 @@ func TestLoadUsesDefaultsAndEnvOverrides(t *testing.T) {
 		"AGENTDOCK_APP_SECRET":          "test-app-secret",
 		"AGENTDOCK_ENCRYPTION_KEY":      "test-encryption-key",
 		"AGENTDOCK_CORS_ALLOWED_ORIGIN": "http://localhost:5173",
+		"AGENTDOCK_SANDBOX_PROVIDER":    "local-docker",
+		"AGENTDOCK_AGENTOS_IMAGE":       "agentos:test",
 	})
 	if err != nil {
 		t.Fatalf("Load returned error: %v", err)
@@ -25,6 +27,15 @@ func TestLoadUsesDefaultsAndEnvOverrides(t *testing.T) {
 	}
 	if cfg.CORSAllowedOrigin != "http://localhost:5173" {
 		t.Fatalf("CORSAllowedOrigin = %q", cfg.CORSAllowedOrigin)
+	}
+	if cfg.SandboxProvider != "local-docker" {
+		t.Fatalf("SandboxProvider = %q, want local-docker", cfg.SandboxProvider)
+	}
+	if cfg.AgentOSImage != "agentos:test" {
+		t.Fatalf("AgentOSImage = %q, want agentos:test", cfg.AgentOSImage)
+	}
+	if cfg.AgentOSDefaultWorkdir != "/workspace" {
+		t.Fatalf("AgentOSDefaultWorkdir = %q, want /workspace", cfg.AgentOSDefaultWorkdir)
 	}
 }
 

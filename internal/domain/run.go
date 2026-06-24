@@ -143,8 +143,8 @@ func ValidateSandboxTransition(from SandboxState, to SandboxState) error {
 	}
 	allowed := map[SandboxState][]SandboxState{
 		SandboxStateCreating: {SandboxStateReady, SandboxStateFailed, SandboxStateClosing},
-		SandboxStateReady:    {SandboxStatePaused, SandboxStateClosing, SandboxStateFailed},
-		SandboxStatePaused:   {SandboxStateReady, SandboxStateClosing, SandboxStateFailed},
+		SandboxStateReady:    {SandboxStatePaused, SandboxStateClosing, SandboxStateClosed, SandboxStateFailed},
+		SandboxStatePaused:   {SandboxStateReady, SandboxStateClosing, SandboxStateClosed, SandboxStateFailed},
 		SandboxStateClosing:  {SandboxStateClosed, SandboxStateFailed},
 		SandboxStateFailed:   {SandboxStateClosing},
 	}

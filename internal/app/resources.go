@@ -98,7 +98,13 @@ func (svc *ResourceService) CreateSandbox(ctx context.Context, req httpapi.Creat
 		AgentOSImage:   req.AgentOSImage,
 	})
 	if err != nil {
+		if errors.Is(err, sandbox.ErrProviderNotConfigured) {
+			return domain.SandboxSession{}, httpapi.ErrProviderNotConfigured
+		}
 		return domain.SandboxSession{}, err
+	}
+	if session.Provider != "" {
+		providerName = session.Provider
 	}
 	return svc.store.CreateSandbox(ctx, store.CreateSandboxParams{
 		Name:              req.Name,
@@ -132,6 +138,30 @@ func (svc *ResourceService) CloseSandbox(ctx context.Context, id string) (domain
 	return svc.transitionSandbox(ctx, id, domain.SandboxStateClosed, svc.provider.CloseSession)
 }
 
+func (svc *ResourceService) InspectSandbox(ctx context.Context, id string) (domain.SandboxSession, error) {
+	session, err := svc.store.GetSandbox(ctx, id)
+	if err != nil {
+		return domain.SandboxSession{}, mapStoreError(err)
+	}
+	observed, err := svc.provider.InspectSession(ctx, sandbox.SessionRef{
+		ProviderSessionID: session.ProviderSessionID,
+		State:             string(session.State),
+	})
+	if err != nil {
+		if errors.Is(err, sandbox.ErrProviderNotConfigured) {
+			return domain.SandboxSession{}, httpapi.ErrProviderNotConfigured
+		}
+		return domain.SandboxSession{}, err
+	}
+	if observed.State != "" {
+		session.State = domain.SandboxState(observed.State)
+	}
+	if observed.Metadata != "" {
+		session.Metadata = observed.Metadata
+	}
+	return session, nil
+}
+
 func (svc *ResourceService) transitionSandbox(ctx context.Context, id string, target domain.SandboxState, callProvider func(context.Context, sandbox.SessionRef) (sandbox.SessionObservation, error)) (domain.SandboxSession, error) {
 	session, err := svc.store.GetSandbox(ctx, id)
 	if err != nil {
@@ -148,6 +178,9 @@ func (svc *ResourceService) transitionSandbox(ctx context.Context, id string, ta
 		State:             string(session.State),
 	})
 	if err != nil {
+		if errors.Is(err, sandbox.ErrProviderNotConfigured) {
+			return domain.SandboxSession{}, httpapi.ErrProviderNotConfigured
+		}
 		return domain.SandboxSession{}, err
 	}
 	nextState := target

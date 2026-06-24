@@ -27,6 +27,14 @@ func TestSandboxStateAllowsIdempotentLifecycleActions(t *testing.T) {
 	}
 }
 
+func TestSandboxStateAllowsManualCloseFromUsableStates(t *testing.T) {
+	for _, state := range []SandboxState{SandboxStateReady, SandboxStatePaused} {
+		if err := ValidateSandboxTransition(state, SandboxStateClosed); err != nil {
+			t.Fatalf("manual close transition %s -> closed rejected: %v", state, err)
+		}
+	}
+}
+
 func TestSandboxStateRejectsTerminalResume(t *testing.T) {
 	if err := ValidateSandboxTransition(SandboxStateClosed, SandboxStateReady); err == nil {
 		t.Fatal("closed -> ready transition was allowed")

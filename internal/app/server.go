@@ -38,7 +38,7 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Applicat
 		return nil, err
 	}
 
-	sandboxProvider := sandbox.NoopProvider{}
+	sandboxProvider := newSandboxProvider(cfg)
 	resourceService := NewResourceService(postgresStore, sandboxProvider)
 	deps := httpapi.Dependencies{
 		ServiceName:       cfg.ServiceName,
@@ -67,6 +67,18 @@ func New(ctx context.Context, cfg config.Config, logger *slog.Logger) (*Applicat
 		store:      postgresStore,
 		worker:     worker.NewProcessor(postgresStore, sandboxProvider, runtime.NoopRunner{}),
 	}, nil
+}
+
+func newSandboxProvider(cfg config.Config) sandbox.Provider {
+	if cfg.SandboxProvider == "local-docker" {
+		return sandbox.NewDockerProvider(sandbox.DockerConfig{
+			AgentOSImage:   cfg.AgentOSImage,
+			DefaultWorkdir: cfg.AgentOSDefaultWorkdir,
+			Network:        cfg.DockerNetwork,
+			VolumePrefix:   cfg.DockerVolumePrefix,
+		})
+	}
+	return sandbox.NoopProvider{}
 }
 
 func NewServer(cfg config.Config, logger *slog.Logger) (*http.Server, error) {

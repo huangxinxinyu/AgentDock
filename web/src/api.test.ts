@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createSandbox, fetchBackendHealth, listSandboxes } from "./api";
+import {
+  createSandbox,
+  fetchBackendHealth,
+  inspectSandbox,
+  listSandboxes,
+} from "./api";
 
 describe("fetchBackendHealth", () => {
   it("loads backend health from the configured API base URL", async () => {
@@ -71,5 +76,32 @@ describe("sandbox api", () => {
       headers: { Accept: "application/json" },
     });
     expect(sandboxes).toHaveLength(1);
+  });
+
+  it("inspects a sandbox", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        id: "sandbox-1",
+        name: "Scratch",
+        provider: "local-docker",
+        state: "ready",
+      }),
+    });
+
+    const sandbox = await inspectSandbox(
+      "http://127.0.0.1:8080",
+      "sandbox-1",
+      fetchMock,
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:8080/sandboxes/sandbox-1/inspect",
+      {
+        method: "POST",
+        headers: { Accept: "application/json" },
+      },
+    );
+    expect(sandbox.provider).toBe("local-docker");
   });
 });

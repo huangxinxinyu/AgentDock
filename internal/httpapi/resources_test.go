@@ -16,6 +16,7 @@ type recordingResourceService struct {
 	createRunReq       CreateRunRequest
 	createSandboxReq   CreateSandboxRequest
 	pauseSandboxID     string
+	inspectSandboxID   string
 }
 
 func (svc *recordingResourceService) CreateWorkspace(_ context.Context, req CreateWorkspaceRequest) (domain.Workspace, error) {
@@ -80,6 +81,11 @@ func (svc *recordingResourceService) ResumeSandbox(context.Context, string) (dom
 
 func (svc *recordingResourceService) CloseSandbox(context.Context, string) (domain.SandboxSession, error) {
 	return domain.SandboxSession{}, nil
+}
+
+func (svc *recordingResourceService) InspectSandbox(_ context.Context, id string) (domain.SandboxSession, error) {
+	svc.inspectSandboxID = id
+	return domain.SandboxSession{ID: id, Name: "scratch", Provider: "noop", State: domain.SandboxStateReady}, nil
 }
 
 func TestCreateWorkspaceEndpoint(t *testing.T) {
@@ -161,5 +167,21 @@ func TestPauseSandboxEndpoint(t *testing.T) {
 	}
 	if svc.pauseSandboxID != "sandbox-1" {
 		t.Fatalf("pause sandbox id = %q", svc.pauseSandboxID)
+	}
+}
+
+func TestInspectSandboxEndpoint(t *testing.T) {
+	svc := &recordingResourceService{}
+	router := NewRouter(Dependencies{Resources: svc})
+
+	req := httptest.NewRequest(http.MethodPost, "/sandboxes/sandbox-1/inspect", bytes.NewBufferString(`{}`))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body = %s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if svc.inspectSandboxID != "sandbox-1" {
+		t.Fatalf("inspect sandbox id = %q", svc.inspectSandboxID)
 	}
 }

@@ -9,6 +9,11 @@ func FromOS() map[string]string {
 		envAppSecret,
 		envEncryptionKey,
 		envCORSAllowedOrigin,
+		envSandboxProvider,
+		envAgentOSImage,
+		envAgentOSWorkdir,
+		envDockerNetwork,
+		envDockerVolumePref,
 	}
 	values := make(map[string]string, len(keys))
 	for _, key := range keys {

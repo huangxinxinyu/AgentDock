@@ -11,6 +11,7 @@ import (
 )
 
 var ErrNotFound = errors.New("resource not found")
+var ErrProviderNotConfigured = errors.New("provider not configured")
 
 type ResourceService interface {
 	CreateWorkspace(context.Context, CreateWorkspaceRequest) (domain.Workspace, error)
@@ -28,6 +29,7 @@ type ResourceService interface {
 	PauseSandbox(context.Context, string) (domain.SandboxSession, error)
 	ResumeSandbox(context.Context, string) (domain.SandboxSession, error)
 	CloseSandbox(context.Context, string) (domain.SandboxSession, error)
+	InspectSandbox(context.Context, string) (domain.SandboxSession, error)
 }
 
 type CreateWorkspaceRequest struct {
@@ -166,6 +168,11 @@ func registerResourceRoutes(mux *http.ServeMux, svc ResourceService) {
 		session, err := svc.CloseSandbox(r.Context(), r.PathValue("id"))
 		writeResourceResponse(w, http.StatusOK, session, err)
 	})
+
+	mux.HandleFunc("POST /sandboxes/{id}/inspect", func(w http.ResponseWriter, r *http.Request) {
+		session, err := svc.InspectSandbox(r.Context(), r.PathValue("id"))
+		writeResourceResponse(w, http.StatusOK, session, err)
+	})
 }
 
 func decodeJSON(w http.ResponseWriter, r *http.Request, dst any) bool {
@@ -184,6 +191,10 @@ func writeResourceResponse(w http.ResponseWriter, status int, body any, err erro
 	}
 	if errors.Is(err, ErrNotFound) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not_found"})
+		return
+	}
+	if errors.Is(err, ErrProviderNotConfigured) {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "provider_not_configured"})
 		return
 	}
 	writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "internal_error"})
