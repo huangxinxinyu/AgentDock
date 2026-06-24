@@ -34,6 +34,14 @@ _Avoid_: model, provider
 The remote compute environment currently attached to an active top-level issue, including its repository checkout, process state, and cleanup policy. It may be reused by later runs while alive, but can expire after its TTL and be recreated from durable issue state.
 _Avoid_: runtime, daemon, machine
 
+**Sandbox Lab**:
+A temporary but real product surface for creating, inspecting, and controlling sandbox sessions before the issue/subagent workflow is connected. It proves sandbox lifecycle, provider behavior, AgentOS startup, and task execution without requiring GitHub, repositories, issues, or runs.
+_Avoid_: final issue workflow, workspace shell
+
+**AgentOS**:
+The runtime image or package started inside a sandbox. AgentOS owns Python, Claude Agent SDK dependencies, runner entrypoints, toolchain setup, and filesystem conventions inside the sandbox. AgentDock starts and observes AgentOS but does not build or install its runtime contents.
+_Avoid_: AgentDock backend, provider, daemon
+
 **Continue Work**:
 A user action that resumes agent work from an alive sandbox session after a patch version has been produced.
 _Avoid_: rerun, restart

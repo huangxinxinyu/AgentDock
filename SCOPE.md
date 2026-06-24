@@ -98,6 +98,18 @@ Responsibilities:
 
 The provider interface should remain abstract enough to add E2B or local Docker later.
 
+### Local Docker Development Provider
+
+Before Daytona is integrated, Sandbox Lab sprints may use a local Docker provider
+to validate sandbox lifecycle and AgentOS execution on a developer machine. This
+is a development substrate, not a change to the managed remote-sandbox product
+direction.
+
+AgentDock should not maintain the runtime image contents in this repository.
+The local Docker provider starts an externally supplied AgentOS image or package.
+AgentOS owns Python, Claude Agent SDK dependencies, runner entrypoints, toolchain
+setup, and filesystem conventions inside the sandbox.
+
 ### Agent Runtime
 
 MVP should support one agent runtime:
